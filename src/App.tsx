@@ -91,17 +91,11 @@ export default function App() {
 
   // Handle interaction on canvas
   const handleCanvasInteraction = (entityId: string) => {
-    if (entityId === 'apollo_lrrr') {
-      setActiveDiscovery(MISSIONS_DATA.apollo_lrrr);
-    } else if (entityId === 'sojourner') {
-      setActiveDiscovery(MISSIONS_DATA.sojourner);
-    } else if (entityId === 'opportunity') {
-      setActiveDiscovery(MISSIONS_DATA.opportunity);
-    } else if (entityId === 'insight') {
-      setActiveDiscovery(MISSIONS_DATA.insight);
+    if (MISSIONS_DATA[entityId]) {
+      setActiveDiscovery(MISSIONS_DATA[entityId]);
     } else if (entityId === 'crashed_ship') {
       // Return to diagnostics or repair
-      if (progress.unlockedMissions.filter(m => m !== 'apollo_lrrr').length >= 3) {
+      if (progress.unlockedMissions.filter(m => !['apollo_lrrr', 'apollo_lrv', 'surveyor_3'].includes(m)).length >= 3) {
         goToChapter(6); // Spacecraft repair
       } else {
         setNovaDialogue({
@@ -126,7 +120,7 @@ export default function App() {
     setActiveDiscovery(null);
 
     // If moon discovery, launch quiz
-    if (missionId === 'apollo_lrrr') {
+    if (['apollo_lrrr', 'apollo_lrv', 'surveyor_3'].includes(missionId)) {
       setActiveQuiz(discovery);
     } else if (missionId === 'sojourner') {
       setActiveMiniGame('sojourner');
@@ -139,18 +133,27 @@ export default function App() {
 
   // Handle quiz success
   const handleQuizSuccess = (missionId: string) => {
+    const nextQuizzes = Array.from(new Set([...progress.quizzesCompleted, missionId]));
     updateProgress((prev) => ({
       ...prev,
-      quizzesCompleted: Array.from(new Set([...prev.quizzesCompleted, missionId]))
+      quizzesCompleted: nextQuizzes
     }));
     setActiveQuiz(null);
 
-    if (missionId === 'apollo_lrrr') {
+    const moonMissions = ['apollo_lrrr', 'apollo_lrv', 'surveyor_3'];
+    const allMoonDone = moonMissions.every((id) => nextQuizzes.includes(id));
+
+    if (allMoonDone) {
       setNovaDialogue({
-        text: "Outstanding work, Explorer! The Moon has revealed its secrets. Our spacecraft systems are configured for the interplanetary transfer burn to Mars!",
+        text: "Outstanding work, Explorer! All 3 Lunar Instruments are analyzed and verified. Our spacecraft systems are configured for the interplanetary transfer burn to Mars!",
         mood: 'celebrate',
         actionLabel: 'Initiate Mars Descent Burn →',
         onAction: () => goToChapter(3) // Go to Mars Crash
+      });
+    } else {
+      setNovaDialogue({
+        text: `Lunar survey progress updated (${nextQuizzes.length}/3)! Keep exploring the Moon's surface to find remaining historical NASA instruments.`,
+        mood: 'happy'
       });
     }
   };
@@ -189,13 +192,35 @@ export default function App() {
     {
       id: 'apollo_lrrr',
       name: 'Laser Retroreflector (Apollo 11)',
-      x: 750,
+      x: 650,
       y: 420,
       width: 60,
       height: 40,
       type: 'station',
       discovered: progress.unlockedMissions.includes('apollo_lrrr'),
       label: 'Apollo 11 ALSEP'
+    },
+    {
+      id: 'apollo_lrv',
+      name: 'Lunar Roving Vehicle (Apollo 17)',
+      x: 1350,
+      y: 410,
+      width: 90,
+      height: 45,
+      type: 'rover',
+      discovered: progress.unlockedMissions.includes('apollo_lrv'),
+      label: 'Apollo 17 LRV'
+    },
+    {
+      id: 'surveyor_3',
+      name: 'Surveyor 3 Lander (1967)',
+      x: 2050,
+      y: 410,
+      width: 100,
+      height: 45,
+      type: 'lander',
+      discovered: progress.unlockedMissions.includes('surveyor_3'),
+      label: 'Surveyor 3 Site'
     }
   ];
 
@@ -289,7 +314,9 @@ export default function App() {
                 <span className="text-slate-500 mx-2">·</span>
                 <span className="text-slate-300">Gravity: 1.62 m/s²</span>
                 <span className="text-slate-500 mx-2">·</span>
-                <span className="text-slate-400">Discoveries: {progress.unlockedMissions.includes('apollo_lrrr') ? '1 / 1' : '0 / 1'}</span>
+                <span className="text-slate-400">
+                  Discoveries: {progress.unlockedMissions.filter(m => ['apollo_lrrr', 'apollo_lrv', 'surveyor_3'].includes(m)).length} / 3
+                </span>
               </div>
             </div>
 
