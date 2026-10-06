@@ -254,5 +254,114 @@ export const MISSIONS_DATA: Record<string, MissionDiscovery> = {
       explanation: 'Martian winds and daily temperature swings of over 80°C create ground noise. The aerodynamic shield ensured SEIS could register vibrations smaller than a hydrogen atom!',
       hint: 'Martian wind howling over exposed equipment rattles the ground and mimics false earthquakes.'
     }
+  },
+  apollo_lrv: {
+    id: 'apollo_lrv',
+    name: 'Lunar Roving Vehicle (Apollo 17)',
+    missionName: 'Apollo 17 Mission',
+    year: '1972',
+    status: 'Decommissioned',
+    location: 'Taurus-Littrow Valley, Moon (20.19°N, 30.77°E)',
+    tagline: 'Humanity’s first electric automobile driven on another world',
+    badge: 'Lunar Driver Pioneer',
+    machine: {
+      title: 'Electric 4-Wheel Drive Lunar Rover',
+      description: 'A lightweight 210 kg (460 lb) folding electric vehicle developed by Boeing and Delco. Powered by two 36-volt silver-zinc potassium-hydroxide non-rechargeable batteries, featuring individual 0.25-horsepower electric motors inside each of its 4 woven wire mesh wheels.',
+      specs: [
+        { label: 'Mass', value: '210 kg (Earth) / 35 kg (Moon)' },
+        { label: 'Top Speed', value: '13 km/h (8 mph)' },
+        { label: 'Total Distance', value: '35.7 km (22.2 miles)' },
+        { label: 'Power System', value: 'Dual 36V Silver-Zinc Batteries' }
+      ],
+      historicalContext: 'Driven by Commander Eugene Cernan and Scientist-Astronaut Harrison Schmitt during Apollo 17, allowing them to explore orange volcanic soil at Shorty Crater and collect 110.5 kg of lunar samples.'
+    },
+    science: {
+      title: 'Geological Sampling & Surface Gravity Surveying',
+      description: 'The LRV transformed lunar surface geology from short localized walks into broad regional exploration. It carried the Traverse Gravimeter, Surface Electrical Properties (SEP) transmitter, and a high-gain TV camera antenna.',
+      measurements: [
+        'Lunar subsurface crustal density via Traverse Gravimeter',
+        'Subsurface water/ice electrical permittivity via SEP radar',
+        'Discovery of 3.8-billion-year-old orange volcanic glass beads at Shorty Crater',
+        'Live color television broadcast of the Lunar Module ascent liftoff'
+      ],
+      instruments: 'Traverse Gravimeter Experiment (TGE), Surface Electrical Properties (SEP), High-Gain Dish Antenna'
+    },
+    whyItMatters: {
+      title: 'Unlocking Regional Lunar Geology',
+      description: 'Without the LRV, Apollo astronauts were restricted to a 1 km walking radius from their Lunar Module. The LRV expanded their exploration range to 7.6 km, enabling the discovery of pyroclastic volcanic glass and deep crustal rocks.',
+      keyTakeaway: 'The LRV proved that wheeled electric mobility is essential for exploring vast extraterrestrial landscapes—a design concept inherited by all modern planetary rovers!'
+    },
+    officialSource: {
+      title: 'NASA Apollo 17 Lunar Roving Vehicle Operations Handbook',
+      url: 'https://www.nasa.gov/mission_pages/apollo/apollo-17.html',
+      agency: 'NASA / National Air and Space Museum'
+    },
+    quiz: {
+      question: 'Why were the Apollo Lunar Roving Vehicle (LRV) wheels made of woven steel wire mesh instead of conventional rubber tires?',
+      options: [
+        'Rubber tires would pop in space vacuum and degrade under extreme lunar temperatures (-130°C to +120°C)',
+        'Steel mesh was much heavier and provided better traction in wet mud',
+        'Rubber tires absorbed too much solar energy and melted on contact',
+        'Woven wire mesh was required to generate static electricity for the rover battery'
+      ],
+      correctIndex: 0,
+      explanation: 'Air-filled rubber tires would pop in the vacuum of space and degrade in extreme lunar temperature swings (-130°C to +120°C). Open steel wire mesh with titanium chevron treads provided flexible grip over sharp regolith without air pressure.',
+      hint: 'Think about what happens to air pressure in a vacuum chamber and how extreme heat/cold affects rubber!'
+    }
+  },
+  surveyor_3: {
+    id: 'surveyor_3',
+    name: 'Surveyor 3 Robotic Lander',
+    missionName: 'Surveyor Program',
+    year: '1967 – 1969',
+    status: 'Completed',
+    location: 'Oceanus Procellarum (Ocean of Storms), Moon',
+    tagline: 'The first robotic lander visited on another world by human astronauts',
+    badge: 'Pre-Apollo Lunar Scout',
+    machine: {
+      title: 'Remote Automated Lunar Soil Sampler Lander',
+      description: 'A 300 kg tripod lander equipped with a slow-scan television camera and an electric motor-driven soil mechanics surface sampler arm. It achieved a soft landing on April 20, 1967 inside a lunar crater.',
+      specs: [
+        { label: 'Landing Mass', value: '300 kg (660 lbs)' },
+        { label: 'Scoop Arm Reach', value: '1.5 meters (5 feet)' },
+        { label: 'TV Images Returned', value: '6,315 photos' },
+        { label: 'Apollo Visit Date', value: 'Apollo 12 (Nov 19, 1969)' }
+      ],
+      historicalContext: 'Two and a half years after Surveyor 3 landed, Apollo 12 astronauts Pete Conrad and Alan Bean landed Lunar Module Intrepid just 180 meters away—performing the first pinpoint human landing in history!'
+    },
+    science: {
+      title: 'Soil Bearing Strength & Long-Term Space Exposure',
+      description: 'Surveyor 3 proved the lunar surface regolith could support the weight of heavy Apollo Lunar Modules. In 1969, Apollo 12 astronauts retrieved Surveyor 3’s TV camera and scoop arm to analyze how space radiation affects materials.',
+      measurements: [
+        'Regolith mechanical bearing strength and cohesion via motorized scoop',
+        'Solar thermal discoloration on painted aluminum coatings',
+        'Micrometeorite impact cratering density on exposed optical lenses',
+        'Microbiological survival test on returned camera components'
+      ],
+      instruments: 'Surveyor Television System, Soil Mechanics Surface Sampler'
+    },
+    whyItMatters: {
+      title: 'Paving the Way for Human Moon Landings',
+      description: 'Before Surveyor 3, scientists feared the Moon was covered in quicksand-like dust that would swallow spacecraft. Surveyor 3 proved the surface was firm regolith, and returning its parts to Earth revealed how solar radiation degrades space hardware.',
+      keyTakeaway: 'Surveyor 3 is the ONLY robotic probe on another world ever visited, inspected, and partially retrieved by human beings!'
+    },
+    officialSource: {
+      title: 'NASA Jet Propulsion Laboratory (JPL) Surveyor 3 Science Report',
+      url: 'https://www.jpl.nasa.gov/missions/surveyor-3',
+      agency: 'NASA JPL'
+    },
+    quiz: {
+      question: 'What unique historic feat did Apollo 12 astronauts Pete Conrad and Alan Bean perform at the Surveyor 3 lander site in 1969?',
+      options: [
+        'They refueled its engines and launched it back to Earth orbit',
+        'They landed 180m away, walked to the lander, and cut off its TV camera to bring back to Earth for analysis',
+        'They installed a nuclear solar panel to restart its radio transmissions',
+        'They buried the lander under lunar regolith to preserve it from radiation'
+      ],
+      correctIndex: 1,
+      explanation: 'Apollo 12 executed a precision pinpoint landing right next to Surveyor 3. Astronauts walked over, examined the lander, cut off its TV camera and scoop arm with cutters, and brought them back to Earth to analyze long-term space exposure!',
+      hint: 'Think about how human astronauts brought robotic parts back to Earth inside their command capsule!'
+    }
   }
 };
+

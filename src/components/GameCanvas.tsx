@@ -433,6 +433,36 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.lineTo(84, 34);
             ctx.closePath();
             ctx.fill();
+          } else if (ent.id === 'apollo_lrv') {
+            // Apollo 17 Lunar Roving Vehicle (LRV - Moon Buggy)
+            // Chassis frame
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillRect(10, 20, 52, 8);
+            // Driver & Passenger Mesh Bucket Seats
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(20, 8, 12, 12);
+            ctx.fillRect(35, 8, 12, 12);
+            // High-Gain Parabolic Dish Antenna mast
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(52, 20);
+            ctx.lineTo(52, 2);
+            ctx.stroke();
+            // Dish bowl
+            ctx.beginPath();
+            ctx.arc(52, 0, 7, 0.2, Math.PI - 0.2);
+            ctx.stroke();
+            // 4 Open Wire Mesh Wheels
+            ctx.fillStyle = '#1e293b';
+            [12, 26, 44, 56].forEach((wx) => {
+              ctx.beginPath();
+              ctx.arc(wx, 28, 6, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#94a3b8';
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            });
           } else {
             // Opportunity Rover
             // Main body
@@ -468,34 +498,64 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
 
         } else if (ent.type === 'lander') {
-          // InSight Lander
-          // Landed central deck
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillRect(16, 14, 48, 16);
-          // Octagonal solar arrays on left & right
-          ctx.fillStyle = '#0284c7';
-          ctx.beginPath();
-          ctx.arc(4, 20, 14, 0, Math.PI * 2);
-          ctx.arc(76, 20, 14, 0, Math.PI * 2);
-          ctx.fill();
-          // Tripod landing legs
-          ctx.strokeStyle = '#64748b';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(18, 28);
-          ctx.lineTo(8, 38);
-          ctx.moveTo(62, 28);
-          ctx.lineTo(72, 38);
-          ctx.stroke();
-          // SEIS Wind and Thermal Shield (WTS) metallic dome on the ground
-          ctx.fillStyle = '#f8fafc';
-          ctx.beginPath();
-          ctx.arc(94, 32, 10, Math.PI, 0);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = '#06b6d4';
-          ctx.stroke();
-
+          if (ent.id === 'surveyor_3') {
+            // Surveyor 3 Tripod Lander
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillRect(20, 14, 24, 16);
+            // Solar panel on top mast
+            ctx.fillStyle = '#0284c7';
+            ctx.fillRect(24, 2, 16, 6);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(32, 14);
+            ctx.lineTo(32, 8);
+            ctx.stroke();
+            // 3 Tripod Landing Legs
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(22, 28);
+            ctx.lineTo(8, 40);
+            ctx.moveTo(42, 28);
+            ctx.lineTo(56, 40);
+            ctx.moveTo(32, 28);
+            ctx.lineTo(32, 42);
+            ctx.stroke();
+            // TV Camera Housing & Soil Scoop Arm
+            ctx.fillStyle = '#38bdf8';
+            ctx.fillRect(44, 20, 10, 5);
+            ctx.fillStyle = '#f59e0b';
+            ctx.fillRect(52, 24, 8, 6); // Scoop resting on regolith
+          } else {
+            // InSight Lander
+            // Landed central deck
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillRect(16, 14, 48, 16);
+            // Octagonal solar arrays on left & right
+            ctx.fillStyle = '#0284c7';
+            ctx.beginPath();
+            ctx.arc(4, 20, 14, 0, Math.PI * 2);
+            ctx.arc(76, 20, 14, 0, Math.PI * 2);
+            ctx.fill();
+            // Tripod landing legs
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(18, 28);
+            ctx.lineTo(8, 38);
+            ctx.moveTo(62, 28);
+            ctx.lineTo(72, 38);
+            ctx.stroke();
+            // SEIS Wind and Thermal Shield (WTS) metallic dome on the ground
+            ctx.fillStyle = '#f8fafc';
+            ctx.beginPath();
+            ctx.arc(94, 32, 10, Math.PI, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#06b6d4';
+            ctx.stroke();
+          }
         } else if (ent.type === 'ship') {
           // Crashed Exploration Lander Ship
           ctx.fillStyle = '#334155';
