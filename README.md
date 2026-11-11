@@ -1,6 +1,6 @@
 # Mars: The Last Descent 🚀
 
-An educational open-world sci-fi adventure where you explore the Martian surface alongside your robotic cat companion **NOVA**. Discover historical robotic explorers from NASA and international space agencies, salvage critical components, recalibrate guidance and propulsion systems, and return home to Earth.
+An educational open-world sci-fi adventure where you explore the Martian surface alongside your robotic cat companion, **NOVA**. Discover historical robotic explorers from NASA and international space agencies, salvage critical components, recalibrate guidance and propulsion systems, and return home to Earth.
 
 ![License](https://img.shields.io/badge/license-CC0--1.0-blue.svg)
 ![React](https://img.shields.io/badge/react-19-cyan.svg)
