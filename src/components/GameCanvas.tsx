@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { sound } from '../systems/audio';
+import { MARS_SCIENTIFIC_CONSTANTS } from '../services/nasaService';
 
 export type GameEnvironment = 'moon' | 'mars';
 
@@ -123,9 +124,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const viewW = canvas.width;
       const viewH = canvas.height;
 
-      // Physics constants based on planetary gravity
+      // Physics constants based on authoritative NASA planetary gravity
       const isMoon = environment === 'moon';
-      const gravity = isMoon ? 0.24 : 0.45; // Low lunar vs Mars gravity
+      // Moon gravity: 1.62 m/s² (~0.165g) -> 0.24 px/frame²
+      // Mars gravity: 3.72076 m/s² (~0.3794g) -> scaled dynamically from MARS_SCIENTIFIC_CONSTANTS
+      const gravity = isMoon ? 0.24 : Number((MARS_SCIENTIFIC_CONSTANTS.earthGravityRatio * 1.18).toFixed(3));
       const jumpPower = isMoon ? -8.5 : -10.5;
       const moveSpeed = 4.2;
 

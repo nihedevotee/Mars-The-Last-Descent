@@ -9,6 +9,7 @@ import { LunaSoftLandingGame } from './MiniGames/LunaSoftLandingGame';
 import { ApolloLaserPingGame } from './MiniGames/ApolloLaserPingGame';
 import { LunokhodLostRoverGame } from './MiniGames/LunokhodLostRoverGame';
 import { NovaDialogue } from './NovaDialogue';
+import { NovaChatModal } from './NovaChatModal';
 import { Volume2, VolumeX, Radio, Sparkles } from 'lucide-react';
 
 interface MoonSceneProps {
@@ -336,6 +337,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     pounceTarget: null as { x: number; y: number } | null,
     ballChaseTimer: 0,
   });
+
+  // NOVA Interactive AI Companion Chatbot Modal state
+  const [isNovaChatOpen, setIsNovaChatOpen] = useState(false);
+  const isNovaChatOpenRef = useRef(false);
+  isNovaChatOpenRef.current = isNovaChatOpen;
 
   // Keys & Touch Controls
   const heldKeysRef = useRef<Set<string>>(new Set());
@@ -1219,6 +1225,24 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
         return;
       }
 
+      // Event Isolation: If user is typing in NOVA Chat input, don't capture game keys
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') {
+        return;
+      }
+
+      // Close NOVA AI Chat Modal with Escape or N if open
+      if (isNovaChatOpenRef.current) {
+        if (e.code === 'Escape' || e.code === 'KeyN' || e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          sound.playClick();
+          clearAllInputs();
+          setIsNovaChatOpen(false);
+          return;
+        }
+        return;
+      }
+
       // Cancel opposite directions
       if (e.code === 'KeyW' || e.code === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
         heldKeysRef.current.delete('KeyS');
@@ -1237,11 +1261,20 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
         heldKeysRef.current.delete('ArrowLeft');
       }
 
-      if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'Enter', 'KeyP'].includes(e.code)) {
+      if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'Enter', 'KeyP', 'KeyN'].includes(e.code)) {
         e.preventDefault();
       }
 
       heldKeysRef.current.add(e.code);
+
+      // N opens NOVA Interactive AI Chatbot
+      if ((e.code === 'KeyN' || e.key === 'n' || e.key === 'N') && !activeRelicRef.current && !showEarthriseRef.current) {
+        sound.playClick();
+        sound.playNovaChirp();
+        clearAllInputs();
+        setIsNovaChatOpen(true);
+        return;
+      }
 
       // P pets Nova when nearby on foot (consistent with Mars WorldScene)
       if ((e.code === 'KeyP' || e.key === 'p' || e.key === 'P') && !activeRelicRef.current && !showEarthriseRef.current && !isDrivingRoverRef.current) {
@@ -1325,7 +1358,7 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'Enter', 'KeyP'].includes(e.code)) {
+      if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'Enter', 'KeyP', 'KeyN'].includes(e.code)) {
         e.preventDefault();
       }
       if (e.code) {
@@ -1385,6 +1418,13 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const loop = (time: number) => {
       const dt = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
+
+      // Pause physics & player inputs while chatting with NOVA
+      if (isNovaChatOpenRef.current) {
+        renderCanvas(time);
+        animId = requestAnimationFrame(loop);
+        return;
+      }
 
       const player = playerRef.current;
       const nova = novaRef.current;
@@ -3971,6 +4011,42 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
       {/* Full-Screen CSS Earthrise Panel */}
       {showEarthrise && (
         <EarthrisePanel onContinue={onComplete} reduceMotion={reduceMotion} />
+      )}
+
+      {/* NOVA Interactive AI Companion Chatbot Modal (Moon Environment) */}
+      <NovaChatModal
+        isOpen={isNovaChatOpen}
+        onClose={() => {
+          sound.playClick();
+          setIsNovaChatOpen(false);
+        }}
+        location="moon"
+      />
+
+      {/* NOVA AI Companion Quick Trigger (Bottom-Right HUD Prompt) */}
+      {!showEarthrise && (
+        <div
+          data-testid="nova-chat-trigger"
+          className="absolute sm:bottom-6 sm:right-6 bottom-24 right-4 z-40 pointer-events-auto select-none"
+        >
+          <button
+            onClick={() => {
+              sound.playClick();
+              sound.playNovaChirp();
+              setIsNovaChatOpen((prev) => !prev);
+            }}
+            className="group px-3.5 py-2 rounded-2xl bg-slate-950/90 hover:bg-slate-900 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 hover:text-cyan-100 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-all cursor-pointer flex items-center gap-2 backdrop-blur-md active:scale-95"
+            title="Press [N] or tap to chat with NOVA on the Moon"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500" />
+            </span>
+            <span className="text-xs font-mono font-bold tracking-wide">
+              🤖 [N] Tap to Chat with NOVA
+            </span>
+          </button>
+        </div>
       )}
 
       {/* Desktop Interaction Prompt Pill */}

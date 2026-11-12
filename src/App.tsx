@@ -6,6 +6,7 @@ import { MISSIONS_DATA, MissionDiscovery } from './data/missions';
 import { MainMenu } from './components/MainMenu';
 import { GameCanvas, InteractiveEntity } from './components/GameCanvas';
 import { NovaDialogue } from './components/NovaDialogue';
+import { NovaChatModal } from './components/NovaChatModal';
 import { Compass, Volume2, VolumeX, Menu, Award, ArrowRight } from 'lucide-react';
 
 // Code-split heavy scenes, modals, cinematics, and mini-games
@@ -54,6 +55,7 @@ export default function App() {
   const [showCredits, setShowCredits] = useState<boolean>(false);
   const [showCrashInterlude, setShowCrashInterlude] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(sound.getMuted());
+  const [isMoonChatOpen, setIsMoonChatOpen] = useState<boolean>(false);
 
   // In-game dialogue overlay state
   const [novaDialogue, setNovaDialogue] = useState<{
@@ -108,6 +110,27 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [progress.currentChapter]);
+
+  // KeyN listener for Chapter 2 Moon
+  useEffect(() => {
+    if (progress.currentChapter === 2) {
+      const handleMoonKey = (e: KeyboardEvent) => {
+        const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea') return;
+        if (e.code === 'KeyN' || e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          sound.playClick();
+          sound.playNovaChirp();
+          setIsMoonChatOpen((prev) => !prev);
+        } else if (e.code === 'Escape' && isMoonChatOpen) {
+          e.preventDefault();
+          setIsMoonChatOpen(false);
+        }
+      };
+      window.addEventListener('keydown', handleMoonKey);
+      return () => window.removeEventListener('keydown', handleMoonKey);
+    }
+  }, [progress.currentChapter, isMoonChatOpen]);
 
   // Handle interaction on canvas (Legacy chapters)
   const handleCanvasInteraction = (entityId: string) => {
@@ -343,6 +366,37 @@ export default function App() {
                 />
               </div>
             )}
+
+            {/* NOVA AI Companion Quick Trigger (Bottom-Right HUD Prompt) */}
+            <div
+              data-testid="nova-chat-trigger-moon-legacy"
+              className="absolute bottom-6 right-6 z-30 pointer-events-auto select-none"
+            >
+              <button
+                onClick={() => {
+                  sound.playClick();
+                  sound.playNovaChirp();
+                  setIsMoonChatOpen((prev) => !prev);
+                }}
+                className="group px-3.5 py-2 rounded-2xl bg-slate-950/90 hover:bg-slate-900 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 hover:text-cyan-100 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-all cursor-pointer flex items-center gap-2 backdrop-blur-md active:scale-95"
+                title="Press [N] or tap to chat with NOVA on the Moon"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500" />
+                </span>
+                <span className="text-xs font-mono font-bold tracking-wide">
+                  🤖 [N] Tap to Chat with NOVA
+                </span>
+              </button>
+            </div>
+
+            {/* NOVA Interactive AI Companion Chatbot Modal (Moon Environment) */}
+            <NovaChatModal
+              isOpen={isMoonChatOpen}
+              onClose={() => setIsMoonChatOpen(false)}
+              location="moon"
+            />
           </div>
         )}
 
