@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
-import { forwardChatToGemini, type GeminiProxyPayload } from './server/geminiProxy.ts';
+import { forwardChatToGemini, type GeminiProxyPayload } from './api/chat.ts';
 
 type NextFn = (err?: unknown) => void;
 type MiddlewareRegistrar = {
