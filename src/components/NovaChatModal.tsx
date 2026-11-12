@@ -19,8 +19,17 @@ import {
   QuickChip,
 } from '../data/novaKnowledge';
 import { getMarsTelemetrySync, MarsTelemetry, getMoonTelemetry, MoonTelemetry } from '../services/nasaService';
-import { queryNovaAI, ChatMessage } from '../services/gemini';
-import { X, Send, Sparkles, Radio, Activity, Compass, ChevronRight, Moon as MoonIcon } from 'lucide-react';
+import {
+  queryNovaAIWithMeta,
+  ChatMessage,
+  AIConnectionMode,
+  getGeminiApiKey,
+  setClientGeminiKey,
+  clearClientGeminiKey,
+  getChatProxyUrl,
+  setClientProxyUrl,
+} from '../services/gemini';
+import { X, Send, Sparkles, Radio, Activity, Compass, ChevronRight, Moon as MoonIcon, KeyRound, Check } from 'lucide-react';
 
 interface NovaChatModalProps {
   isOpen: boolean;
@@ -49,6 +58,16 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [mood, setMood] = useState<NovaMood>('idle');
+  const [aiMode, setAiMode] = useState<AIConnectionMode | 'standby'>(() =>
+    getGeminiApiKey() ? 'direct' : 'standby'
+  );
+  const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [showKeyConfig, setShowKeyConfig] = useState(false);
+  const [draftApiKey, setDraftApiKey] = useState(() => getGeminiApiKey() || '');
+  const [draftProxyUrl, setDraftProxyUrl] = useState(() => {
+    const url = getChatProxyUrl();
+    return url === '/api/chat' ? '' : url;
+  });
   const [marsTelemetry, setMarsTelemetry] = useState<MarsTelemetry>(() => getMarsTelemetrySync());
   const [moonTelemetry] = useState<MoonTelemetry>(() => getMoonTelemetry());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -131,16 +150,18 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     setMood('scanning');
 
     try {
-      const response = await queryNovaAI(query, messages, location);
+      const result = await queryNovaAIWithMeta(query, messages, location);
+      setAiMode(result.mode);
+      setActiveModel(result.model || null);
       sound.playNovaChirp();
       const novaMsg: ChatMessage = {
         id: `nova_${Date.now() + 1}`,
         sender: 'nova',
-        text: response,
+        text: result.text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, novaMsg]);
-      setMood('happy');
+      setMood(result.mode === 'offline' ? 'curious' : 'happy');
     } catch (err) {
       const errorMsg: ChatMessage = {
         id: `nova_err_${Date.now()}`,
@@ -213,12 +234,31 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
             </div>
 
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-mono font-bold text-sm text-cyan-300 tracking-wider">
                   NOVA // UNIT-09
                 </h3>
                 <span className="px-1.5 py-0.2 rounded bg-cyan-950/80 border border-cyan-500/40 text-[9px] font-mono text-cyan-400 font-semibold uppercase">
                   {isMoon ? 'LUNAR TELEMETRY AI' : 'NASA AI COMPANION'}
+                </span>
+                <span
+                  data-testid="nova-ai-mode-badge"
+                  title={activeModel ? `Model: ${activeModel}` : 'AI Transport Status'}
+                  className={`px-1.5 py-0.2 rounded border text-[9px] font-mono font-semibold uppercase ${
+                    aiMode === 'proxy' || aiMode === 'direct'
+                      ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                      : aiMode === 'offline'
+                        ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
+                        : 'bg-slate-800/80 border-slate-600/50 text-slate-300'
+                  }`}
+                >
+                  {aiMode === 'proxy'
+                    ? 'PROXY LIVE'
+                    : aiMode === 'direct'
+                      ? 'DIRECT LIVE'
+                      : aiMode === 'offline'
+                        ? 'LOCAL CACHE'
+                        : 'AI READY'}
                 </span>
               </div>
               <p className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5">
@@ -230,18 +270,81 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              sound.playClick();
-              onClose();
-            }}
-            data-testid="nova-chat-close-btn"
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/60 transition-colors cursor-pointer"
-            title="Close [ESC] or [N]"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                sound.playClick();
+                setShowKeyConfig((v) => !v);
+              }}
+              data-testid="nova-key-config-btn"
+              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                showKeyConfig
+                  ? 'bg-cyan-950/90 text-cyan-300 border-cyan-500/60'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-cyan-300 border-slate-700/60'
+              }`}
+              title="Configure AI Proxy / Browser API Key"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                sound.playClick();
+                onClose();
+              }}
+              data-testid="nova-chat-close-btn"
+              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/60 transition-colors cursor-pointer"
+              title="Close [ESC] or [N]"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {/* Optional Client Proxy / API Key Config Drawer (for static deployments) */}
+        {showKeyConfig && (
+          <div className="shrink-0 px-4 py-2.5 bg-slate-900/95 border-b border-cyan-500/30 space-y-2 text-[11px] font-mono">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="password"
+                value={draftApiKey}
+                onChange={(e) => setDraftApiKey(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Optional Gemini API Key (stored only in this browser)"
+                className="flex-1 bg-slate-950 text-slate-100 placeholder-slate-500 px-2.5 py-1.5 rounded-lg border border-slate-700 focus:border-cyan-400 focus:outline-none"
+              />
+              <input
+                type="text"
+                value={draftProxyUrl}
+                onChange={(e) => setDraftProxyUrl(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Optional Proxy URL (e.g. https://your-app.vercel.app/api/chat)"
+                className="flex-1 bg-slate-950 text-slate-100 placeholder-slate-500 px-2.5 py-1.5 rounded-lg border border-slate-700 focus:border-cyan-400 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  if (draftApiKey.trim()) {
+                    setClientGeminiKey(draftApiKey.trim());
+                  } else {
+                    clearClientGeminiKey();
+                  }
+                  setClientProxyUrl(draftProxyUrl.trim());
+                  setAiMode(draftApiKey.trim() || draftProxyUrl.trim() ? 'direct' : 'standby');
+                  setShowKeyConfig(false);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold flex items-center justify-center gap-1 cursor-pointer shrink-0"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Save</span>
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Local Vite &amp; Vercel use server proxy automatically. On static GitHub Pages without a proxy URL, paste a key here to enable live AI in this browser.
+            </p>
+          </div>
+        )}
 
         {/* Live NASA Telemetry Micro-Bar */}
         <div className="shrink-0 px-4 py-1.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400 overflow-x-auto whitespace-nowrap gap-4">

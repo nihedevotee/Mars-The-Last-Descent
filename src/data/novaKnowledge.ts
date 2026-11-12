@@ -287,7 +287,13 @@ INSTRUCTIONS:
  * Smart offline fallback for queries matching common intents.
  */
 export function getOfflineFallbackResponse(userInput: string, location: 'mars' | 'moon' = 'mars'): string {
-  const query = userInput.toLowerCase();
+  const query = userInput.toLowerCase().trim();
+
+  if (/^(hi+|hello+|hey+|greetings|yo|salam|assalamu|sup|kemon|halo)\b/.test(query)) {
+    return location === 'moon'
+      ? `[TELEMETRY LINK STANDBY] Greetings, Explorer! NOVA Unit-09 reporting from the Lunar surface (1.62 m/s², hard vacuum). Tap a diagnostic chip below or ask about Apollo relics, water ice, LRV driving, or lunar physics!`
+      : `[TELEMETRY LINK STANDBY] Greetings, Explorer! NOVA Unit-09 here and monitoring your Mars suit telemetry (3.72 m/s², 610 Pa CO2). Tap a diagnostic chip below or ask about ship repairs, Sonar Ping [Q], dust storms, or NASA Mars data!`;
+  }
 
   if (location === 'moon') {
     if (query.includes('mission') || query.includes('objective') || query.includes('relic') || query.includes('apollo') || query.includes('luna')) {
