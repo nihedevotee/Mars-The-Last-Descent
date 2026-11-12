@@ -27,6 +27,8 @@ import { LaunchCinematic } from './LaunchCinematic';
 import { EndingScreen } from './EndingScreen';
 import { CreditsModal } from './CreditsModal';
 import { MissionArchiveModal } from './MissionArchiveModal';
+import { NovaChatModal } from './NovaChatModal';
+import { fetchMarsLiveTelemetry, getMarsTelemetrySync, MARS_SCIENTIFIC_CONSTANTS } from '../services/nasaService';
 import { FogOfWarSystem, MinimapRenderer, MINIMAP_VIEW_RADIUS, REVEAL_RADIUS_TILES } from '../render/minimap';
 import { saveWorldProgress, getSavedProgress, saveProgress, resetProgress, formatPlayTime, PlayerUpgrades, GameProgress, isReduceMotionEnabled, setReduceMotionEnabled } from '../systems/saveManager';
 import { getSampleResearchPoints } from '../data/samples';
@@ -132,6 +134,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const [isMapOpen, setIsMapOpen] = useState<boolean>(false);
   const isMapOpenRef = useRef<boolean>(false);
   isMapOpenRef.current = isMapOpen;
+
+  // NOVA Interactive AI Companion Chatbot Modal state (Toggle with N or HUD button)
+  const [isNovaChatOpen, setIsNovaChatOpen] = useState<boolean>(false);
+  const isNovaChatOpenRef = useRef<boolean>(false);
+  isNovaChatOpenRef.current = isNovaChatOpen;
 
   // Nova Hint on first full map open
   const hasSeenMapHintRef = useRef<boolean>(false);
@@ -323,7 +330,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     novaSprite: 'nova_idle_down',
   });
 
-  // Pause movement when dialogue, mini-game, tile debugger, map overlay, repair, launch, ship terminal, or ending is open
+  // Pause movement when dialogue, mini-game, tile debugger, map overlay, repair, launch, ship terminal, ending, or NOVA chat is open
   const isPaused =
     !!activeMiniGame ||
     !!novaDialogue ||
@@ -334,7 +341,8 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     showEnding ||
     showCredits ||
     showCodex ||
-    isShipTerminalOpen;
+    isShipTerminalOpen ||
+    isNovaChatOpen;
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
@@ -407,6 +415,9 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
   // Initialize World, Spawn Point, and Deterministic Equipment Scatter
   useEffect(() => {
+    // Synchronize Mars Telemetry with NASA Open APIs (with automatic offline fallback)
+    fetchMarsLiveTelemetry().catch(() => {});
+
     worldRef.current = new WorldChunkManager(config.seed);
     collisionRef.current = new CollisionSystem(worldRef.current);
 
@@ -1538,11 +1549,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     });
   }, [triggerAutoSave]);
 
-  // Game control key codes (KeyW, KeyA, KeyS, KeyD, Arrow keys, KeyE, KeyT, KeyM, Escape, Shift, KeyQ, KeyP, etc.)
+  // Game control key codes (KeyW, KeyA, KeyS, KeyD, Arrow keys, KeyE, KeyT, KeyM, Escape, Shift, KeyQ, KeyP, KeyN, etc.)
   const GAME_KEY_CODES = new Set([
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
     'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-    'KeyE', 'KeyT', 'KeyM', 'Escape', 'Space', 'Enter',
+    'KeyE', 'KeyT', 'KeyM', 'KeyN', 'Escape', 'Space', 'Enter',
     'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyP',
   ]);
 
@@ -1572,6 +1583,24 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Event Isolation: If user is typing into an input/textarea (such as NOVA Chat), do not intercept game keys!
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') {
+        return;
+      }
+
+      // Close NOVA AI Chat Modal with Escape or N if open
+      if (isNovaChatOpenRef.current) {
+        if (e.code === 'Escape' || e.code === 'KeyN' || e.key === 'n' || e.key === 'N') {
+          e.preventDefault();
+          sound.playClick();
+          clearAllInputs();
+          setIsNovaChatOpen(false);
+          return;
+        }
+        return;
+      }
+
       // System / Modifier keys: clear all inputs to prevent browser swallowing keyup when Alt-Tab / Windows key / Tab is pressed
       if (
         e.key === 'Alt' ||
@@ -1709,6 +1738,16 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
         if (!isPausedRef.current) {
           triggerSonarScan();
         }
+        return;
+      }
+
+      // NOVA Interactive AI Companion Chatbot Shortcut with N
+      if (e.code === 'KeyN' || e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        sound.playClick();
+        sound.playNovaChirp();
+        clearAllInputs();
+        setIsNovaChatOpen(true);
         return;
       }
 
@@ -4106,6 +4145,15 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
         />
       )}
 
+      {/* NOVA Interactive AI Companion Chatbot Modal */}
+      <NovaChatModal
+        isOpen={isNovaChatOpen}
+        onClose={() => {
+          sound.playClick();
+          setIsNovaChatOpen(false);
+        }}
+      />
+
       {/* Planetary Exploration Codex Modal */}
       {showCodex && (
         <MissionArchiveModal
@@ -4506,6 +4554,18 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
               [P] Pet NOVA
             </button>
             <span className="text-slate-600 mx-1">·</span>
+            <button
+              onClick={() => {
+                sound.playClick();
+                sound.playNovaChirp();
+                setIsNovaChatOpen(true);
+              }}
+              className="text-cyan-300 hover:text-cyan-100 font-bold cursor-pointer underline pointer-events-auto"
+              title="Chat with NOVA AI Companion"
+            >
+              [N] Chat NOVA
+            </button>
+            <span className="text-slate-600 mx-1">·</span>
             <span className="text-cyan-400 font-bold">[M]:</span> Map
             {isDebugMode && (
               <>
@@ -4514,6 +4574,34 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* NOVA AI Companion Quick Trigger (Bottom-Right HUD Prompt) */}
+      {/* ======================================================== */}
+      {!isLaunching && !showEnding && (
+        <div
+          data-testid="nova-chat-trigger"
+          className="absolute sm:bottom-48 sm:right-4 bottom-56 right-4 z-20 pointer-events-auto select-none"
+        >
+          <button
+            onClick={() => {
+              sound.playClick();
+              sound.playNovaChirp();
+              setIsNovaChatOpen((prev) => !prev);
+            }}
+            className="group px-3.5 py-2 rounded-2xl bg-slate-950/90 hover:bg-slate-900 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 hover:text-cyan-100 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] transition-all cursor-pointer flex items-center gap-2 backdrop-blur-md active:scale-95"
+            title="Press [N] or tap to chat with NOVA AI Companion"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500" />
+            </span>
+            <span className="text-xs font-mono font-bold tracking-wide">
+              🤖 [N] Tap to Chat with NOVA
+            </span>
+          </button>
         </div>
       )}
 
