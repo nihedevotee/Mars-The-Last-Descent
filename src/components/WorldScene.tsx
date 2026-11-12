@@ -350,6 +350,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  // Switch Mars exploration BGM to Intro overture during launch/ending reprise
+  useEffect(() => {
+    sound.startBgm(isLaunching || showEnding ? 'intro' : 'mars');
+  }, [isLaunching, showEnding]);
+
   // NOVA companion state
   const novaRef = useRef({
     x: 0,

@@ -96,6 +96,17 @@ export default function App() {
     };
   }, []);
 
+  // Scene-aware procedural BGM switching (Intro / Moon / Mars)
+  useEffect(() => {
+    if (showCrashInterlude || progress.currentChapter === 0 || progress.currentChapter === 1 || progress.currentChapter === 7) {
+      sound.startBgm('intro');
+    } else if (progress.currentChapter === 2 || progress.currentChapter === 8) {
+      sound.startBgm('moon');
+    } else {
+      sound.startBgm('mars');
+    }
+  }, [progress.currentChapter, showCrashInterlude]);
+
   // Ambient setup for legacy lunar surface
   useEffect(() => {
     if (progress.currentChapter === 2) {
