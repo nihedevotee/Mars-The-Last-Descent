@@ -3,10 +3,11 @@
  * Routing order:
  *   1. Server-side Proxy (/api/chat or VITE_CHAT_PROXY_URL) — keeps GEMINI_API_KEY secret
  *   2. Direct browser Gemini API call (VITE_GEMINI_API_KEY or user-saved localStorage key)
- *   3. Local planetary knowledge base fallback
+ *   3. State-aware offline knowledge base fallback
  */
 
 import { buildNovaSystemPrompt, getOfflineFallbackResponse } from '../data/novaKnowledge';
+import type { NovaGameContext } from '../data/novaContext';
 
 export interface ChatMessage {
   id: string;
@@ -27,11 +28,24 @@ export interface NovaAIResult {
 const STORAGE_KEY_API = 'nova_gemini_api_key';
 const STORAGE_KEY_PROXY = 'nova_chat_proxy_url';
 
-const ACTIVE_GEMINI_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.8-flash',
-] as const;
+const DEFAULT_PRIMARY_MODEL = 'gemini-3.6-flash';
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash';
+const REQUEST_TIMEOUT_MS = 9000;
+const MIN_INTERVAL_MS = 1500;
+const MAX_REPLY_CHARS = 1200;
+
+function readEnv(): Record<string, string | undefined> {
+  if (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string | undefined> }).env) {
+    return (import.meta as { env: Record<string, string | undefined> }).env;
+  }
+  return {};
+}
+
+function getModelCandidates(): string[] {
+  const configured = (readEnv().VITE_GEMINI_MODEL || '').trim();
+  const primary = configured || DEFAULT_PRIMARY_MODEL;
+  return primary === DEFAULT_FALLBACK_MODEL ? [primary] : [primary, DEFAULT_FALLBACK_MODEL];
+}
 
 function readStorage(key: string): string {
   try {
@@ -59,8 +73,7 @@ export function getChatProxyUrl(): string {
   const custom = readStorage(STORAGE_KEY_PROXY).trim();
   if (custom) return custom;
 
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
-  const configured = (env.VITE_CHAT_PROXY_URL || '').trim();
+  const configured = (readEnv().VITE_CHAT_PROXY_URL || '').trim();
   return configured || '/api/chat';
 }
 
@@ -69,8 +82,7 @@ export function setClientProxyUrl(url: string): void {
 }
 
 export function getGeminiApiKey(): string | null {
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env || {};
-  const envKey = (env.VITE_GEMINI_API_KEY || '').trim();
+  const envKey = (readEnv().VITE_GEMINI_API_KEY || '').trim();
   if (envKey.length > 10) return envKey;
 
   const localKey = readStorage(STORAGE_KEY_API).trim();
@@ -92,17 +104,20 @@ export function isGeminiConfigured(): boolean {
 }
 
 let lastCallTimestamp = 0;
-const MIN_INTERVAL_MS = 800;
+
+interface GeminiCandidate {
+  finishReason?: string;
+  content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+}
 
 function extractVisibleText(data: unknown): string | null {
-  const candidates = (
-    data as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string; thought?: boolean }> };
-      }>;
-    }
-  )?.candidates;
-  const parts = candidates?.[0]?.content?.parts;
+  const candidate = (data as { candidates?: GeminiCandidate[] })?.candidates?.[0];
+  if (!candidate) return null;
+  if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'RECITATION') {
+    return null;
+  }
+
+  const parts = candidate.content?.parts;
   if (!Array.isArray(parts)) return null;
 
   const visible = parts
@@ -111,46 +126,103 @@ function extractVisibleText(data: unknown): string | null {
     .join('\n')
     .trim();
 
-  if (visible) return visible;
-  return parts.find((p) => typeof p.text === 'string' && p.text.trim().length > 0)?.text?.trim() || null;
-}
-
-function buildConversationContents(userPrompt: string, history: ChatMessage[]) {
-  const recentHistory = history
-    .filter((msg) => msg.id !== 'welcome_1' && !msg.id.startsWith('nova_err_'))
-    .slice(-8)
-    .map((msg) => ({
-      role: (msg.sender === 'user' ? 'user' : 'model') as 'user' | 'model',
-      parts: [{ text: msg.text }],
-    }));
-
-  return [
-    ...recentHistory,
-    {
-      role: 'user' as const,
-      parts: [{ text: userPrompt }],
-    },
-  ];
+  return visible || null;
 }
 
 /**
- * Queries NOVA's AI backend (server proxy first, then direct client key, then offline cache)
+ * Strips any accidental prompt-block tags or unresolved template lines, trims, and caps reply length.
+ */
+export function sanitizeNovaReply(text: string): string {
+  const stripped = text
+    .replace(/<\/?(?:GAME_STATE|TELEMETRY|GAME_FACTS|RECENT_EVENTS|NEXT_STEP|identity|voice|truth_rules|hint_policy|safety_and_scope|context_use)>/gi, '')
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith('{{'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (stripped.length <= MAX_REPLY_CHARS) {
+    return stripped;
+  }
+  return `${stripped.slice(0, MAX_REPLY_CHARS - 3).trimEnd()}...`;
+}
+
+/**
+ * Builds valid alternating user/model turns from the last 8 relevant messages,
+ * dropping welcome/chip/error messages, merging consecutive same-role turns,
+ * and ensuring the first turn has role 'user'.
+ */
+export function buildConversationContents(
+  userPrompt: string,
+  history: ChatMessage[]
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const filtered = history
+    .filter(
+      (msg) =>
+        !msg.isQuickChip &&
+        !msg.id.startsWith('welcome_') &&
+        !msg.id.startsWith('nova_err_') &&
+        msg.text.trim().length > 0
+    )
+    .slice(-8);
+
+  const turns: Array<{ role: 'user' | 'model'; text: string }> = [];
+
+  for (const msg of filtered) {
+    const role: 'user' | 'model' = msg.sender === 'user' ? 'user' : 'model';
+    const prev = turns[turns.length - 1];
+    if (prev && prev.role === role) {
+      prev.text = `${prev.text}\n\n${msg.text.trim()}`;
+    } else {
+      turns.push({ role, text: msg.text.trim() });
+    }
+  }
+
+  while (turns.length > 0 && turns[0].role !== 'user') {
+    turns.shift();
+  }
+
+  const trimmedPrompt = userPrompt.trim();
+  if (trimmedPrompt.length > 0) {
+    const last = turns[turns.length - 1];
+    if (last && last.role === 'user') {
+      last.text = `${last.text}\n\n${trimmedPrompt}`;
+    } else {
+      turns.push({ role: 'user', text: trimmedPrompt });
+    }
+  }
+
+  return turns.map((t) => ({
+    role: t.role,
+    parts: [{ text: t.text }],
+  }));
+}
+
+/**
+ * Queries NOVA's AI backend (server proxy first, then direct client key, then state-aware offline cache)
  * and returns both the reply text and the connection mode used.
  */
 export async function queryNovaAIWithMeta(
   userPrompt: string,
   history: ChatMessage[] = [],
   location: 'mars' | 'moon' = 'mars',
+  ctx?: NovaGameContext
 ): Promise<NovaAIResult> {
   const now = Date.now();
   const elapsed = now - lastCallTimestamp;
-  if (elapsed < MIN_INTERVAL_MS) {
+  if (elapsed < MIN_INTERVAL_MS && lastCallTimestamp > 0) {
     await new Promise((resolve) => setTimeout(resolve, MIN_INTERVAL_MS - elapsed));
   }
   lastCallTimestamp = Date.now();
 
-  const systemInstruction = buildNovaSystemPrompt(location);
+  const systemPrompt = buildNovaSystemPrompt(location, ctx);
   const contents = buildConversationContents(userPrompt, history);
+  if (contents.length === 0) {
+    return {
+      text: getOfflineFallbackResponse(userPrompt, location, ctx),
+      mode: 'offline',
+    };
+  }
 
   // 1. Try server-side proxy (/api/chat in Vite dev/preview or Vercel, or VITE_CHAT_PROXY_URL)
   const proxyUrl = getChatProxyUrl();
@@ -158,15 +230,21 @@ export async function queryNovaAIWithMeta(
     const proxyRes = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ systemInstruction, contents }),
-      signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(16000) : undefined,
+      body: JSON.stringify({ systemPrompt, contents, gameContext: ctx }),
+      signal:
+        typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+          ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+          : undefined,
     });
 
     const contentType = proxyRes.headers.get('content-type') || '';
     if (proxyRes.ok && contentType.includes('application/json')) {
       const data = (await proxyRes.json()) as { reply?: string; model?: string };
       if (data.reply && data.reply.trim().length > 0) {
-        return { text: data.reply.trim(), mode: 'proxy', model: data.model };
+        const clean = sanitizeNovaReply(data.reply);
+        if (clean.length > 0) {
+          return { text: clean, mode: 'proxy', model: data.model };
+        }
       }
     }
   } catch {
@@ -176,33 +254,48 @@ export async function queryNovaAIWithMeta(
   // 2. Fallback to direct Gemini call if client key or localStorage key is configured
   const apiKey = getGeminiApiKey();
   if (apiKey) {
-    const body = {
-      systemInstruction: {
-        parts: [{ text: systemInstruction }],
-      },
-      contents,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1024,
-      },
-    };
-
-    for (const model of ACTIVE_GEMINI_MODELS) {
+    for (const model of getModelCandidates()) {
       try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const generationConfig: Record<string, unknown> = {
+          temperature: 0.6,
+          topP: 0.95,
+          maxOutputTokens: 600,
+        };
+        if (/^gemini-2\.5-/i.test(model)) {
+          generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        }
+
+        const body = {
+          system_instruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents,
+          generationConfig,
+        };
+
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const response = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
           body: JSON.stringify(body),
-          signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(7500) : undefined,
+          signal:
+            typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+              ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+              : undefined,
         });
 
         if (!response.ok) continue;
 
         const data = await response.json();
-        const text = extractVisibleText(data);
-        if (text) {
-          return { text, mode: 'direct', model };
+        const rawText = extractVisibleText(data);
+        if (rawText) {
+          const clean = sanitizeNovaReply(rawText);
+          if (clean.length > 0) {
+            return { text: clean, mode: 'direct', model };
+          }
         }
       } catch {
         // Try next active Gemini model
@@ -210,21 +303,22 @@ export async function queryNovaAIWithMeta(
     }
   }
 
-  // 3. Offline planetary knowledge base fallback
+  // 3. State-aware offline knowledge base fallback
   return {
-    text: getOfflineFallbackResponse(userPrompt, location),
+    text: sanitizeNovaReply(getOfflineFallbackResponse(userPrompt, location, ctx)),
     mode: 'offline',
   };
 }
 
 /**
- * Sends a message to Gemini AI with Nova's Mars/Moon persona and game context.
+ * Sends a message to Gemini AI (or state-aware offline knowledge) with Nova's Mars/Moon persona and context.
  */
 export async function queryNovaAI(
   userPrompt: string,
   history: ChatMessage[] = [],
   location: 'mars' | 'moon' = 'mars',
+  ctx?: NovaGameContext
 ): Promise<string> {
-  const result = await queryNovaAIWithMeta(userPrompt, history, location);
+  const result = await queryNovaAIWithMeta(userPrompt, history, location, ctx);
   return result.text;
 }

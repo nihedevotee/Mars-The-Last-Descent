@@ -1,10 +1,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const ACTIVE_GEMINI_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.8-flash',
-] as const;
+const DEFAULT_PRIMARY_MODEL = 'gemini-3.6-flash';
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash';
+
+export function getActiveGeminiModels(overrideModel?: string): string[] {
+  const configured = (overrideModel || process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || '').trim();
+  const primary = configured || DEFAULT_PRIMARY_MODEL;
+  return primary === DEFAULT_FALLBACK_MODEL ? [primary] : [primary, DEFAULT_FALLBACK_MODEL];
+}
+
+export const ACTIVE_GEMINI_MODELS = [DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL] as const;
 
 export interface GeminiContentPart {
   text?: string;
@@ -17,8 +22,10 @@ export interface GeminiContentMessage {
 }
 
 export interface GeminiProxyPayload {
+  systemPrompt?: string;
   systemInstruction?: string;
   contents?: GeminiContentMessage[];
+  gameContext?: unknown;
 }
 
 export interface GeminiProxyResult {
@@ -40,13 +47,23 @@ interface VercelResponse extends ServerResponse {
   json?: (data: unknown) => void;
 }
 
+interface GeminiCandidate {
+  finishReason?: string;
+  content?: { parts?: GeminiContentPart[] };
+}
+
 /**
  * Extracts the visible response text from a Gemini generateContent payload,
- * skipping internal thinking parts emitted by Gemini 3.x reasoning models.
+ * treating SAFETY/RECITATION blocks or empty parts as failures.
  */
 export function extractGeminiReplyText(data: unknown): string | null {
-  const candidates = (data as { candidates?: Array<{ content?: { parts?: GeminiContentPart[] } }> })?.candidates;
-  const parts = candidates?.[0]?.content?.parts;
+  const candidate = (data as { candidates?: GeminiCandidate[] })?.candidates?.[0];
+  if (!candidate) return null;
+  if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'RECITATION') {
+    return null;
+  }
+
+  const parts = candidate.content?.parts;
   if (!Array.isArray(parts)) return null;
 
   const visibleText = parts
@@ -55,15 +72,12 @@ export function extractGeminiReplyText(data: unknown): string | null {
     .join('\n')
     .trim();
 
-  if (visibleText) return visibleText;
-
-  const fallbackText = parts.find((part) => typeof part.text === 'string' && part.text.trim().length > 0)?.text?.trim();
-  return fallbackText || null;
+  return visibleText || null;
 }
 
 /**
  * Forwards a normalized chat payload to Gemini's generateContent REST API,
- * falling back across active Flash models on transient errors or timeouts.
+ * sending the API key in x-goog-api-key and falling back across active Flash models.
  */
 export async function forwardChatToGemini(
   apiKey: string,
@@ -78,31 +92,42 @@ export async function forwardChatToGemini(
     return { status: 400, body: { error: 'Missing chat contents array.' } };
   }
 
-  const requestBody: Record<string, unknown> = {
-    contents,
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 1024,
-    },
-  };
-
-  if (payload.systemInstruction && payload.systemInstruction.trim().length > 0) {
-    requestBody.systemInstruction = {
-      parts: [{ text: payload.systemInstruction.trim() }],
-    };
-  }
+  const systemText = (payload.systemPrompt || payload.systemInstruction || '').trim();
+  const models = getActiveGeminiModels();
 
   let lastStatus = 502;
   let lastError = 'All Gemini models failed to respond.';
 
-  for (const model of ACTIVE_GEMINI_MODELS) {
+  for (const model of models) {
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const generationConfig: Record<string, unknown> = {
+        temperature: 0.6,
+        topP: 0.95,
+        maxOutputTokens: 600,
+      };
+      if (/^gemini-2\.5-/i.test(model)) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
+      const requestBody: Record<string, unknown> = {
+        contents,
+        generationConfig,
+      };
+      if (systemText.length > 0) {
+        requestBody.system_instruction = {
+          parts: [{ text: systemText }],
+        };
+      }
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
       const upstream = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(7500),
+        signal: AbortSignal.timeout(9000),
       });
 
       if (!upstream.ok) {
@@ -119,7 +144,7 @@ export async function forwardChatToGemini(
       }
 
       lastStatus = 502;
-      lastError = `Model ${model} returned an empty candidate.`;
+      lastError = `Model ${model} returned an empty or blocked candidate.`;
     } catch (err) {
       lastStatus = 502;
       lastError = err instanceof Error ? err.message : 'Network error calling Gemini API.';

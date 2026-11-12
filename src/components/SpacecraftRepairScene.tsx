@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { sound } from '../systems/audio';
+import { GAME_CONSTANTS } from '../data/gameFacts';
 import { NovaAvatar } from './NovaAvatar';
 import { Wrench, CheckCircle2, ChevronRight, Zap, Radio, Sliders, X, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -26,14 +27,14 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
   const [showGyroWhy, setShowGyroWhy] = useState(false);
 
   // Mini-puzzle states
-  const [gimbalAngle, setGimbalAngle] = useState(12); // target is 0°
-  const [powerFrequency, setPowerFrequency] = useState(30); // target is 60Hz
-  const [gyroTrim, setGyroTrim] = useState(-15); // target is 0
+  const [gimbalAngle, setGimbalAngle] = useState<number>(GAME_CONSTANTS.CALIBRATION.gimbal.start); // target is 0°
+  const [powerFrequency, setPowerFrequency] = useState<number>(GAME_CONSTANTS.CALIBRATION.powerBusHz.start); // target is 60Hz
+  const [gyroTrim, setGyroTrim] = useState<number>(GAME_CONSTANTS.CALIBRATION.gyroTrim.start); // target is 0
 
   const handleFixGimbal = (val?: number) => {
     const angle = val !== undefined ? val : gimbalAngle;
     sound.playHover();
-    if (Math.abs(angle) <= 2) {
+    if (Math.abs(angle - GAME_CONSTANTS.CALIBRATION.gimbal.target) <= GAME_CONSTANTS.CALIBRATION.gimbal.tolerance) {
       sound.playSuccess();
       setRepairs((prev) => ({ ...prev, gimbal: true }));
     }
@@ -42,7 +43,7 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
   const handleFixPower = (val?: number) => {
     const freq = val !== undefined ? val : powerFrequency;
     sound.playHover();
-    if (freq >= 58 && freq <= 62) {
+    if (freq >= GAME_CONSTANTS.CALIBRATION.powerBusHz.min && freq <= GAME_CONSTANTS.CALIBRATION.powerBusHz.max) {
       sound.playSuccess();
       setRepairs((prev) => ({ ...prev, powerBus: true }));
     }
@@ -51,7 +52,7 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
   const handleFixGyro = (val?: number) => {
     const trim = val !== undefined ? val : gyroTrim;
     sound.playHover();
-    if (Math.abs(trim) <= 1) {
+    if (Math.abs(trim - GAME_CONSTANTS.CALIBRATION.gyroTrim.target) <= GAME_CONSTANTS.CALIBRATION.gyroTrim.tolerance) {
       sound.playSuccess();
       setRepairs((prev) => ({ ...prev, gyro: true }));
     }
@@ -186,8 +187,8 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                       <Sliders className="w-3.5 h-3.5 text-cyan-400" />
                       Gimbal Angle:
                     </span>
-                    <span className={Math.abs(gimbalAngle) <= 2 ? 'text-emerald-400 font-bold' : 'text-cyan-400'}>
-                      {gimbalAngle > 0 ? `+${gimbalAngle}°` : `${gimbalAngle}°`} {Math.abs(gimbalAngle) <= 2 ? '(CENTERED)' : ''}
+                    <span className={Math.abs(gimbalAngle - GAME_CONSTANTS.CALIBRATION.gimbal.target) <= GAME_CONSTANTS.CALIBRATION.gimbal.tolerance ? 'text-emerald-400 font-bold' : 'text-cyan-400'}>
+                      {gimbalAngle > 0 ? `+${gimbalAngle}°` : `${gimbalAngle}°`} {Math.abs(gimbalAngle - GAME_CONSTANTS.CALIBRATION.gimbal.target) <= GAME_CONSTANTS.CALIBRATION.gimbal.tolerance ? '(CENTERED)' : ''}
                     </span>
                   </div>
 
@@ -200,7 +201,7 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                     onChange={(e) => {
                       const val = Number(e.target.value);
                       setGimbalAngle(val);
-                      if (Math.abs(val) <= 2) handleFixGimbal(val);
+                      if (Math.abs(val - GAME_CONSTANTS.CALIBRATION.gimbal.target) <= GAME_CONSTANTS.CALIBRATION.gimbal.tolerance) handleFixGimbal(val);
                     }}
                     className="w-full accent-cyan-400 cursor-pointer"
                   />
@@ -245,8 +246,8 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                       <Sliders className="w-3.5 h-3.5 text-amber-400" />
                       Frequency:
                     </span>
-                    <span className={powerFrequency >= 58 && powerFrequency <= 62 ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                      {powerFrequency} Hz {powerFrequency >= 58 && powerFrequency <= 62 ? '(SYNCHRONIZED)' : ''}
+                    <span className={powerFrequency >= GAME_CONSTANTS.CALIBRATION.powerBusHz.min && powerFrequency <= GAME_CONSTANTS.CALIBRATION.powerBusHz.max ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                      {powerFrequency} Hz {powerFrequency >= GAME_CONSTANTS.CALIBRATION.powerBusHz.min && powerFrequency <= GAME_CONSTANTS.CALIBRATION.powerBusHz.max ? '(SYNCHRONIZED)' : ''}
                     </span>
                   </div>
 
@@ -259,7 +260,7 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                     onChange={(e) => {
                       const val = Number(e.target.value);
                       setPowerFrequency(val);
-                      if (val >= 58 && val <= 62) handleFixPower(val);
+                      if (val >= GAME_CONSTANTS.CALIBRATION.powerBusHz.min && val <= GAME_CONSTANTS.CALIBRATION.powerBusHz.max) handleFixPower(val);
                     }}
                     className="w-full accent-amber-400 cursor-pointer"
                   />
@@ -304,8 +305,8 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                       <Sliders className="w-3.5 h-3.5 text-emerald-400" />
                       Drift Trim:
                     </span>
-                    <span className={Math.abs(gyroTrim) <= 1 ? 'text-emerald-400 font-bold' : 'text-emerald-400'}>
-                      {gyroTrim > 0 ? `+${gyroTrim}` : `${gyroTrim}`} μrad/s {Math.abs(gyroTrim) <= 1 ? '(NULLIFIED)' : ''}
+                    <span className={Math.abs(gyroTrim - GAME_CONSTANTS.CALIBRATION.gyroTrim.target) <= GAME_CONSTANTS.CALIBRATION.gyroTrim.tolerance ? 'text-emerald-400 font-bold' : 'text-emerald-400'}>
+                      {gyroTrim > 0 ? `+${gyroTrim}` : `${gyroTrim}`} μrad/s {Math.abs(gyroTrim - GAME_CONSTANTS.CALIBRATION.gyroTrim.target) <= GAME_CONSTANTS.CALIBRATION.gyroTrim.tolerance ? '(NULLIFIED)' : ''}
                     </span>
                   </div>
 
@@ -318,7 +319,7 @@ export const SpacecraftRepairScene: React.FC<SpacecraftRepairSceneProps> = ({
                     onChange={(e) => {
                       const val = Number(e.target.value);
                       setGyroTrim(val);
-                      if (Math.abs(val) <= 1) handleFixGyro(val);
+                      if (Math.abs(val - GAME_CONSTANTS.CALIBRATION.gyroTrim.target) <= GAME_CONSTANTS.CALIBRATION.gyroTrim.tolerance) handleFixGyro(val);
                     }}
                     className="w-full accent-emerald-400 cursor-pointer"
                   />

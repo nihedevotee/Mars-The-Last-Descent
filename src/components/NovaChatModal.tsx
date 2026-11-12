@@ -16,8 +16,10 @@ import {
   MOON_PRESET_QUICK_CHIPS,
   QUICK_CHIP_ANSWERS,
   getTelemetryAnswer,
+  formatProgressAnswer,
   QuickChip,
 } from '../data/novaKnowledge';
+import { NovaGameContext, computeNextStep } from '../data/novaContext';
 import { getMarsTelemetrySync, MarsTelemetry, getMoonTelemetry, MoonTelemetry } from '../services/nasaService';
 import {
   queryNovaAIWithMeta,
@@ -35,12 +37,44 @@ interface NovaChatModalProps {
   isOpen: boolean;
   onClose: () => void;
   location?: 'mars' | 'moon';
+  getGameContext?: () => NovaGameContext;
+}
+
+function buildWelcomeText(isMoon: boolean, ctx?: NovaGameContext): string {
+  if (isMoon) {
+    if (ctx && ctx.location === 'moon') {
+      const hasProgress =
+        ctx.relicIds.length > 0 ||
+        ctx.iceScannedIds.length > 0 ||
+        ctx.lunarRockIds.length > 0 ||
+        ctx.monumentIds.length > 0 ||
+        ctx.secretIds.length > 0 ||
+        ctx.thumperFired;
+      if (hasProgress) {
+        return `Welcome back, Explorer. ${ctx.relicIds.length}/3 lunar relics logged (${ctx.iceScannedIds.length}/6 PSR ice spots). Ask me for your next step, or pick a diagnostic below.`;
+      }
+    }
+    return `Greetings Explorer! I am NOVA Unit-09. We have touched down on the Moon. Gravity is 1.62 m/s² (~1/6th G). All Lunar ALSEP and NASA LRO telemetry systems are nominal. How can I assist our lunar survey today?`;
+  }
+
+  if (ctx && ctx.location === 'mars') {
+    const hasProgress =
+      ctx.collectedPartIds.length > 0 ||
+      ctx.collectedSampleIds.length > 0 ||
+      ctx.discoveredLandmarkIds.length > 0 ||
+      ctx.isShipRepaired;
+    if (hasProgress) {
+      return `Welcome back, Explorer. ${ctx.collectedPartIds.length}/8 parts secured. Ask me for your next step, or pick a diagnostic below.`;
+    }
+  }
+  return `Greetings Explorer! I am NOVA Unit-09. My neural core is synchronized with NASA telemetry. How can I assist your mission today? Select a diagnostic query below or ask freely!`;
 }
 
 export const NovaChatModal: React.FC<NovaChatModalProps> = ({
   isOpen,
   onClose,
   location = 'mars',
+  getGameContext,
 }) => {
   const isMoon = location === 'moon';
 
@@ -48,9 +82,7 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     {
       id: 'welcome_1',
       sender: 'nova',
-      text: isMoon
-        ? `Greetings Explorer! I am NOVA Unit-09. We have touched down on the Moon. Gravity is 1.62 m/s² (~1/6th G). All Lunar ALSEP and NASA LRO telemetry systems are nominal. How can I assist our lunar survey today?`
-        : `Greetings Explorer! I am NOVA Unit-09. My neural core is synchronized with NASA telemetry. How can I assist your mission today? Select a diagnostic query below or ask freely!`,
+      text: buildWelcomeText(isMoon),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -84,8 +116,16 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
       if (!isMoon) {
         setMarsTelemetry(getMarsTelemetrySync());
       }
+      const ctx = getGameContext?.();
+      setMessages((prev) => {
+        if (prev[0]?.id !== 'welcome_1') return prev;
+        const nextWelcome = buildWelcomeText(isMoon, ctx);
+        if (prev[0].text === nextWelcome) return prev;
+        return [{ ...prev[0], text: nextWelcome }, ...prev.slice(1)];
+      });
       setTimeout(() => inputRef.current?.focus(), 150);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, isMoon]);
 
   useEffect(() => {
@@ -101,6 +141,8 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     sound.playClick();
     sound.playNovaChirp();
 
+    const ctx = getGameContext?.();
+
     const userMsg: ChatMessage = {
       id: `user_${Date.now()}`,
       sender: 'user',
@@ -110,10 +152,16 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     };
 
     let reply = QUICK_CHIP_ANSWERS[chip.id];
-    if (chip.id === 'mars_telemetry') {
-      reply = getTelemetryAnswer('mars');
+    if (chip.id === 'next_step') {
+      reply = ctx
+        ? computeNextStep(ctx)
+        : 'Telemetry synchronizing... Ask again in a moment for live guidance.';
+    } else if (chip.id === 'progress') {
+      reply = formatProgressAnswer(ctx, location);
+    } else if (chip.id === 'mars_telemetry') {
+      reply = getTelemetryAnswer('mars', ctx);
     } else if (chip.id === 'moon_telemetry') {
-      reply = getTelemetryAnswer('moon');
+      reply = getTelemetryAnswer('moon', ctx);
     }
 
     setMood(chip.id.includes('pet_nova') ? 'happy' : 'curious');
@@ -123,6 +171,7 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
       sender: 'nova',
       text: reply || 'Telemetry nominal. All systems functioning within margins.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isQuickChip: true,
     };
 
     setMessages((prev) => [...prev, userMsg, novaMsg]);
@@ -138,6 +187,8 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     sound.playClick();
     setInputText('');
 
+    const ctx = getGameContext?.();
+
     const userMsg: ChatMessage = {
       id: `user_${Date.now()}`,
       sender: 'user',
@@ -150,7 +201,7 @@ export const NovaChatModal: React.FC<NovaChatModalProps> = ({
     setMood('scanning');
 
     try {
-      const result = await queryNovaAIWithMeta(query, messages, location);
+      const result = await queryNovaAIWithMeta(query, messages, location, ctx);
       setAiMode(result.mode);
       setActiveModel(result.model || null);
       sound.playNovaChirp();
