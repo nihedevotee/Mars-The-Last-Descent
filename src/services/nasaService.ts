@@ -61,7 +61,7 @@ export interface MoonConstants {
   atmosphere: string; // Hard vacuum (< 3 × 10⁻¹⁵ atm)
   dayLengthHours: number; // 708.7 hours (~29.5 Earth days)
   tempRangeC: { min: number; max: number; psr: number }; // -130°C to +120°C, PSR: -246°C
-  radiationMsvYear: number; // ~1360 mSv/yr (high cosmic ray flux without atmosphere)
+  radiationMsvYear: number; // ~500 mSv/yr (~1.37 mSv/day measured lunar surface cosmic ray flux)
 }
 
 export const MOON_SCIENTIFIC_CONSTANTS: MoonConstants = {
@@ -71,7 +71,7 @@ export const MOON_SCIENTIFIC_CONSTANTS: MoonConstants = {
   atmosphere: 'Surface Boundary Exosphere / Hard Vacuum (< 10⁻¹⁴ bar)',
   dayLengthHours: 708.7,
   tempRangeC: { min: -130, max: 120, psr: -246 },
-  radiationMsvYear: 1360,
+  radiationMsvYear: 500,
 };
 
 export interface MoonTelemetry {
@@ -105,7 +105,7 @@ export function formatMoonTelemetryForNova(): string {
     `⚡ Gravity: ${t.gravity} m/s² (16.54% Earth standard gravity - 1/6th G)`,
     `💨 Atmospheric Pressure: ${t.pressure}`,
     `🌡️ Surface Temp: ${t.temperatureC}°C (PSR Craters: -246°C / 27 K)`,
-    `☢️ Cosmic Radiation: ${t.radiationMsvYear} mSv/yr (Unshielded Surface Flux)`,
+    `☢️ Cosmic Radiation: ~${t.radiationMsvYear} mSv/yr (~1.37 mSv/day unshielded surface flux)`,
     `🌅 Horizon: ${t.illumination}`,
     `🔬 Data Source: ${t.source}`,
   ].join('\n');
@@ -159,7 +159,8 @@ let memoryTelemetryCache: MarsTelemetry = IN_SIGHT_OFFLINE_BASELINE;
  * Returns the NASA API Key configured in Vite env, falling back to public 'DEMO_KEY'.
  */
 export function getNasaApiKey(): string {
-  const envKey = (import.meta as any).env?.VITE_NASA_API_KEY || (import.meta as any).env?.NASA_API_KEY;
+  const env = typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {};
+  const envKey = env.VITE_NASA_API_KEY || env.NASA_API_KEY;
   return (envKey && typeof envKey === 'string' && envKey.trim().length > 0) ? envKey.trim() : 'DEMO_KEY';
 }
 
@@ -315,17 +316,38 @@ export function calculateAtmosphereForGame(
 }
 
 /**
+ * Returns current in-game Martian conditions for a given normalized solTime (0..1).
+ */
+export function getInGameConditions(solTime: number) {
+  return calculateAtmosphereForGame(solTime, false);
+}
+
+/**
  * Formats Mars telemetry into a concise technical briefing string for NOVA or HUD readouts.
  */
-export function formatTelemetryForNova(telemetry: MarsTelemetry = memoryTelemetryCache): string {
-  return [
+export function formatTelemetryForNova(
+  telemetry: MarsTelemetry = memoryTelemetryCache,
+  solTime?: number
+): string {
+  const isLiveFeed = telemetry.source === 'NASA InSight Live';
+  const lines = [
     `📡 [TELEMETRY LINK]: ${telemetry.stationName}`,
-    `🗓️ Sol: ${telemetry.sol} | Season: ${telemetry.season}`,
-    `🌡️ Surface Temp: ${telemetry.temperatureC.current}°C (Min: ${telemetry.temperatureC.min}°C, Max: ${telemetry.temperatureC.max}°C)`,
+    `🗓️ Archive Sol: ${telemetry.sol} | Season: ${telemetry.season}`,
+    `🌡️ Surface Temp (archive model): ${telemetry.temperatureC.current}°C (Min: ${telemetry.temperatureC.min}°C, Max: ${telemetry.temperatureC.max}°C)`,
     `💨 Surface Pressure: ${telemetry.pressurePa} Pa (~${(telemetry.pressurePa / 101325).toFixed(4)} atm)`,
     `🌪️ Wind: ${telemetry.windSpeedMs} m/s @ ${telemetry.windDirectionDegrees}° azimuth`,
     `🌫️ Dust Opacity (Tau): ${telemetry.dustOpticalDepthTau} (Optical Extinction Nominal)`,
     `⚡ Gravity: ${MARS_SCIENTIFIC_CONSTANTS.surfaceGravity} m/s² (~0.38g)`,
     `🧪 Atmosphere: 95.3% CO2, 2.6% N2, 1.9% Ar, 0.16% O2`,
-  ].join('\n');
+    `source: ${telemetry.source} (${isLiveFeed ? 'live feed' : 'archived/modelled climatology; InSight ended Dec 2022'})`,
+  ];
+
+  if (typeof solTime === 'number' && Number.isFinite(solTime)) {
+    const cond = getInGameConditions(solTime);
+    lines.push(
+      `in-game conditions now: ${cond.temperatureC} C, dust tau ${cond.dustOpticalDepth}, visibility ${cond.visibilityFactor.toFixed(2)}`
+    );
+  }
+
+  return lines.join('\n');
 }

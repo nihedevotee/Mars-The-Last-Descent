@@ -86,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onResetSa
               <div>
                 <div className="text-sm font-semibold text-white">Procedural WebAudio Synthesizer</div>
                 <div className="text-slate-400 mt-0.5">
-                  100% CC0 real-time synthesis: wind loops, footsteps, blips, & fanfares
+                  100% CC0 real-time synthesis: adaptive BGM, wind loops, footsteps, blips, & fanfares
                 </div>
               </div>
               <button

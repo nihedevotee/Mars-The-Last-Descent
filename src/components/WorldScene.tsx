@@ -3,7 +3,7 @@ import { atlas } from '../render/atlas';
 import { WorldChunkManager, CHUNK_PIXEL_SIZE, WorldProp } from '../world/chunk';
 import { CollisionSystem } from '../world/collision';
 import { EquipmentPlacementSystem, PlacedEquipment, PlacedSample, PlacedLandmark } from '../world/placement';
-import { SHIP_PARTS, EquipmentDefinition } from '../data/equipment';
+import { SHIP_PARTS, EquipmentDefinition, EQUIPMENT_DEFINITIONS } from '../data/equipment';
 import { SCIENCE_SAMPLES } from '../data/samples';
 import { LANDMARK_DEFINITIONS } from '../data/landmarks';
 import { drawLandmark } from '../render/landmarkRender';
@@ -28,6 +28,8 @@ import { EndingScreen } from './EndingScreen';
 import { CreditsModal } from './CreditsModal';
 import { MissionArchiveModal } from './MissionArchiveModal';
 import { NovaChatModal } from './NovaChatModal';
+import { GAME_CONSTANTS } from '../data/gameFacts';
+import { pushNovaEvent, clearNovaEvents, MarsGameContext } from '../data/novaContext';
 import { fetchMarsLiveTelemetry, getMarsTelemetrySync, MARS_SCIENTIFIC_CONSTANTS } from '../services/nasaService';
 import { FogOfWarSystem, MinimapRenderer, MINIMAP_VIEW_RADIUS, REVEAL_RADIUS_TILES } from '../render/minimap';
 import { saveWorldProgress, getSavedProgress, saveProgress, resetProgress, formatPlayTime, PlayerUpgrades, GameProgress, isReduceMotionEnabled, setReduceMotionEnabled } from '../systems/saveManager';
@@ -157,6 +159,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const collectedSamplesRef = useRef<string[]>([]);
   collectedSamplesRef.current = collectedSampleIds;
   const [nearbySample, setNearbySample] = useState<PlacedSample | null>(null);
+  const nearbySampleRef = useRef<PlacedSample | null>(null);
   const [sampleToast, setSampleToast] = useState<{ name: string; fact: string } | null>(null);
 
   // Procedural Natural Landmarks State (5 per world)
@@ -223,7 +226,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const novaBubbleElementRef = useRef<HTMLDivElement | null>(null);
 
   // Dynamic Martian Sol Day/Night Cycle State
-  const solTimeRef = useRef<number>(0.35); // 0.0 to 1.0 (start at 0.35 = mid morning)
+  const solTimeRef = useRef<number>(GAME_CONSTANTS.SOL.START); // 0.0 to 1.0 (start at 0.35 = mid morning)
   const [solTimeDisplay, setSolTimeDisplay] = useState<{ sol: number; timeStr: string; isNight: boolean }>({
     sol: 1,
     timeStr: '08:24',
@@ -270,6 +273,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
   // Active Interactive Proximity State
   const [nearbyEquipment, setNearbyEquipment] = useState<PlacedEquipment | null>(null);
+  const nearbyEquipmentRef = useRef<PlacedEquipment | null>(null);
   const [isNearShip, setIsNearShip] = useState<boolean>(false);
   const isNearShipRef = useRef<boolean>(false);
   isNearShipRef.current = isNearShip;
@@ -346,6 +350,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  // Switch Mars exploration BGM to Intro overture during launch/ending reprise
+  useEffect(() => {
+    sound.startBgm(isLaunching || showEnding ? 'intro' : 'mars');
+  }, [isLaunching, showEnding]);
+
   // NOVA companion state
   const novaRef = useRef({
     x: 0,
@@ -415,6 +424,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
   // Initialize World, Spawn Point, and Deterministic Equipment Scatter
   useEffect(() => {
+    clearNovaEvents();
     // Synchronize Mars Telemetry with NASA Open APIs (with automatic offline fallback)
     fetchMarsLiveTelemetry().catch(() => {});
 
@@ -534,7 +544,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
         const relicCount = saved.moonChapter.relicIds?.length ?? 0;
         const hasOrangeGlass = saved.moonChapter.secretIds?.includes('secret_orange_glass');
         const bonusSecretRp = hasOrangeGlass ? 1 : 0;
-        initialRp = Math.min(4, Math.max(0, relicCount + bonusSecretRp));
+        initialRp = Math.min(GAME_CONSTANTS.RP.MOON_CARRYOVER_CAP, Math.max(0, relicCount + bonusSecretRp));
 
         const updatedSaved: GameProgress = {
           ...saved,
@@ -752,7 +762,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
         const tileCX = Math.floor(centerWorldX / 16);
         const tileCY = Math.floor(centerWorldY / 16);
         fogRef.current.revealArea(tileCX, tileCY, 24);
-        solTimeRef.current = 0.35;
+        solTimeRef.current = GAME_CONSTANTS.SOL.START;
 
         sound.playHover();
         return {
@@ -1305,13 +1315,14 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     bonusRpWreckIdsRef.current = [];
     setUpgrades({ jetpack: 0, scan: 0, minimap: 0 });
     upgradesRef.current = { jetpack: 0, scan: 0, minimap: 0 };
-    solTimeRef.current = 0.35;
-    sprintEnergyRef.current = 100;
-    setSprintEnergy(100);
+    solTimeRef.current = GAME_CONSTANTS.SOL.START;
+    sprintEnergyRef.current = GAME_CONSTANTS.SPRINT.MAX;
+    setSprintEnergy(GAME_CONSTANTS.SPRINT.MAX);
     setIsShipRepaired(false);
     isShipRepairedRef.current = false;
     playTimeRef.current = 0;
     setPlayTimeSeconds(0);
+    clearNovaEvents();
     setSaveToast('Save Reset');
     setTimeout(() => setSaveToast(null), 2000);
   }, []);
@@ -1320,14 +1331,15 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
   const triggerSonarScan = useCallback(() => {
     if (sonarCooldownRef.current > 0) return;
     sound.playSonarPing();
-    sonarCooldownRef.current = 5.0;
-    setSonarCooldown(5.0);
+    pushNovaEvent({ atPlaySeconds: playTimeRef.current, type: 'sonar_ping' });
+    sonarCooldownRef.current = GAME_CONSTANTS.SONAR.COOLDOWN_S;
+    setSonarCooldown(GAME_CONSTANTS.SONAR.COOLDOWN_S);
     compassTimerRef.current = 5.5;
     sampleGlintTimerRef.current = 6.0; // Sonar scan reveals sample glints for ~6s
 
     const player = playerRef.current;
     const scanLvl = typeof upgradesRef.current.scan === 'number' ? upgradesRef.current.scan : (upgradesRef.current.scan ? 1 : 0);
-    const maxRadius = scanLvl === 2 ? 420 : scanLvl === 1 ? 350 : 280; // +25% Scan Radius per level
+    const maxRadius = GAME_CONSTANTS.SONAR.RADIUS_PX[scanLvl] ?? GAME_CONSTANTS.SONAR.RADIUS_PX[0]; // +25% Scan Radius per level
     sonarWaveRef.current = {
       active: true,
       x: player.x,
@@ -1337,11 +1349,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     };
 
     // Temporarily reveal wide area in fog of war
-    const currentTileX = Math.floor(player.x / 16);
-    const currentTileY = Math.floor(player.y / 16);
+    const currentTileX = Math.floor(player.x / GAME_CONSTANTS.TILE_PX);
+    const currentTileY = Math.floor(player.y / GAME_CONSTANTS.TILE_PX);
     const minimapLvl = typeof upgradesRef.current.minimap === 'number' ? upgradesRef.current.minimap : (upgradesRef.current.minimap ? 1 : 0);
-    const currentRevealRadius = minimapLvl === 2 ? 26 : minimapLvl === 1 ? 22 : 18;
-    fogRef.current.revealArea(currentTileX, currentTileY, currentRevealRadius + 8);
+    const currentRevealRadius = GAME_CONSTANTS.SONAR.MINIMAP_REVEAL_TILES[minimapLvl] ?? GAME_CONSTANTS.SONAR.MINIMAP_REVEAL_TILES[0];
+    fogRef.current.revealArea(currentTileX, currentTileY, currentRevealRadius + GAME_CONSTANTS.SONAR.PING_REVEAL_BONUS_TILES);
   }, []);
 
   // Pet NOVA Companion & Activate Morale Boost
@@ -1350,7 +1362,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     const nova = novaRef.current;
     const dist = Math.hypot(player.x - nova.x, player.y - nova.y);
 
-    if (dist > 45) {
+    if (dist > GAME_CONSTANTS.PET.RANGE_PX) {
       setNovaBubble({
         text: 'NOVA is too far away to pet! Move closer.',
         mood: 'curious',
@@ -1360,7 +1372,8 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     }
 
     sound.playNovaPurr();
-    moraleBoostTimerRef.current = 6.0;
+    moraleBoostTimerRef.current = GAME_CONSTANTS.PET.DURATION_S;
+    pushNovaEvent({ atPlaySeconds: playTimeRef.current, type: 'pet_nova' });
 
     // Spawn floating heart particles over NOVA
     for (let i = 0; i < 6; i++) {
@@ -1401,6 +1414,12 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     setResearchPoints(nextPoints);
     researchPointsRef.current = nextPoints;
 
+    pushNovaEvent({
+      atPlaySeconds: playTimeRef.current,
+      type: 'sample_collected',
+      detail: `${sample.def.name} (+${earnedPoints} RP)`,
+    });
+
     triggerAutoSave(true);
 
     setSampleToast({
@@ -1434,9 +1453,15 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     sound.playCanyonEcho();
     triggerCameraShake(4.5, 0.45);
 
-    const nextPoints = researchPointsRef.current + 3;
+    const nextPoints = researchPointsRef.current + GAME_CONSTANTS.RP.DEPTH_SOUNDER;
     setResearchPoints(nextPoints);
     researchPointsRef.current = nextPoints;
+
+    pushNovaEvent({
+      atPlaySeconds: playTimeRef.current,
+      type: 'depth_sounder',
+      detail: `Valles Marineris Depth Sounder (+${GAME_CONSTANTS.RP.DEPTH_SOUNDER} RP)`,
+    });
 
     triggerAutoSave(true);
 
@@ -1458,11 +1483,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
   // Buy Subsystem Upgrade at Crashed Spaceship (2 levels each: costs 3/6, 4/8, 5/10 RP)
   const handleBuyUpgrade = useCallback((key: 'jetpack' | 'scan' | 'minimap') => {
-    const costs: Record<'jetpack' | 'scan' | 'minimap', [number, number]> = {
-      jetpack: [3, 6],
-      scan: [4, 8],
-      minimap: [5, 10],
-    };
+    const costs = GAME_CONSTANTS.UPGRADE_COST;
     const currentVal = upgradesRef.current[key];
     const currentLvl = typeof currentVal === 'number' ? currentVal : (currentVal ? 1 : 0);
     if (currentLvl >= 2) return;
@@ -1479,6 +1500,12 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     researchPointsRef.current = nextPoints;
     setUpgrades(nextUpgrades);
     upgradesRef.current = nextUpgrades;
+
+    pushNovaEvent({
+      atPlaySeconds: playTimeRef.current,
+      type: 'upgrade_bought',
+      detail: `${key} Lv.${nextLvl}`,
+    });
 
     triggerAutoSave(true);
   }, [triggerAutoSave]);
@@ -1893,6 +1920,12 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     setCollectedPartIds(nextParts);
     collectedPartIdsRef.current = nextParts;
 
+    pushNovaEvent({
+      atPlaySeconds: playTimeRef.current,
+      type: 'part_salvaged',
+      detail: `${part?.name || def.rewardPartId} (${nextParts.length}/${GAME_CONSTANTS.PARTS_REQUIRED}) from ${def.name}`,
+    });
+
     // Check if a story memory log unlocks with this part/wreck
     const log = getLogForPart(def.rewardPartId) || getLogForWreck(equipId);
     let logUnlocked = false;
@@ -1928,8 +1961,18 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
     setActiveMiniGame(null);
 
+    if (nextParts.length < GAME_CONSTANTS.PARTS_REQUIRED && generalBubbleCooldownRef.current <= 0) {
+      const remaining = GAME_CONSTANTS.PARTS_REQUIRED - nextParts.length;
+      setNovaBubble({
+        text: `${part?.name || 'Component'} salvaged (${nextParts.length}/${GAME_CONSTANTS.PARTS_REQUIRED})! ${remaining} left.`,
+        mood: 'happy',
+      });
+      novaBubbleTimerRef.current = 4.0;
+      generalBubbleCooldownRef.current = 15.0;
+    }
+
     // If all 8 parts now collected, trigger Nova celebratory dialogue
-    if (nextParts.length >= 8 && !hasSeenAllPartsHintRef.current) {
+    if (nextParts.length >= GAME_CONSTANTS.PARTS_REQUIRED && !hasSeenAllPartsHintRef.current) {
       hasSeenAllPartsHintRef.current = true;
       setTimeout(() => {
         setNovaDialogue({
@@ -1956,14 +1999,75 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
     bonusRpWreckIdsRef.current = nextList;
     setBonusRpWreckIds(nextList);
 
-    const nextPoints = researchPointsRef.current + 1;
+    const nextPoints = researchPointsRef.current + GAME_CONSTANTS.RP.BONUS_3_STAR;
     researchPointsRef.current = nextPoints;
     setResearchPoints(nextPoints);
+
+    const eqName = EQUIPMENT_DEFINITIONS[wreckId]?.name || wreckId;
+    pushNovaEvent({
+      atPlaySeconds: playTimeRef.current,
+      type: 'bonus_rp',
+      detail: `${eqName} 3-star (+${GAME_CONSTANTS.RP.BONUS_3_STAR} RP)`,
+    });
 
     sound.playSuccess();
     triggerAutoSave(true);
     return true;
   }, [triggerAutoSave]);
+
+  const buildMarsContext = useCallback((): MarsGameContext => {
+    const solTime = solTimeRef.current;
+    const solHour = solTime * 24;
+    const hours = Math.floor(solHour);
+    const mins = Math.floor((solHour % 1) * 60);
+    const clock = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    const isNight =
+      solTime > GAME_CONSTANTS.SOL.NIGHT_AFTER ||
+      solTime < GAME_CONSTANTS.SOL.NIGHT_BEFORE;
+    const solNumber = 1 + Math.floor(playTimeRef.current / GAME_CONSTANTS.SOL.REAL_SECONDS);
+
+    const tileX = Math.floor(playerRef.current.x / GAME_CONSTANTS.TILE_PX);
+    const tileY = Math.floor(playerRef.current.y / GAME_CONSTANTS.TILE_PX);
+    const biome = worldRef.current.getTileBiome(tileX, tileY) as MarsGameContext['biome'];
+
+    const up = upgradesRef.current;
+    const normalizeLvl = (v: number | boolean | undefined) =>
+      typeof v === 'number' ? v : v ? 1 : 0;
+
+    const nearObjectName = nearbyEquipmentRef.current
+      ? nearbyEquipmentRef.current.def.name
+      : isNearShipRef.current
+      ? 'Ascendant-IV Crashed Ship'
+      : nearbySampleRef.current
+      ? nearbySampleRef.current.def.name
+      : canProbeCanyonRef.current
+      ? 'Valles Marineris Rim'
+      : undefined;
+
+    return {
+      location: 'mars',
+      solNumber,
+      clock,
+      isNight,
+      biome,
+      collectedPartIds: [...collectedPartIdsRef.current],
+      completedEquipmentIds: [...completedRef.current],
+      collectedSampleIds: [...collectedSamplesRef.current],
+      discoveredLandmarkIds: [...discoveredLandmarksRef.current],
+      canyonSounded: soundedLandmarksRef.current.includes('canyon_rim'),
+      researchPoints: researchPointsRef.current,
+      upgrades: {
+        jetpack: normalizeLvl(up.jetpack),
+        scan: normalizeLvl(up.scan),
+        minimap: normalizeLvl(up.minimap),
+      },
+      sprintEnergy: Math.round(sprintEnergyRef.current),
+      sonarCooldownS: Math.round(sonarCooldownRef.current * 10) / 10,
+      moraleBoostS: Math.round(moraleBoostTimerRef.current * 10) / 10,
+      isShipRepaired: isShipRepairedRef.current,
+      nearObjectName,
+    };
+  }, []);
 
   // Main 60 FPS Game Loop
   useEffect(() => {
@@ -2052,13 +2156,13 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
       const wantsSprint = (keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.boost) && isMoving;
       let isSprinting = false;
 
-      if (wantsSprint && sprintEnergyRef.current > 5) {
+      if (wantsSprint && sprintEnergyRef.current > GAME_CONSTANTS.SPRINT.MIN_TO_START) {
         isSprinting = true;
         const jetpackLvl = typeof upgradesRef.current.jetpack === 'number' ? upgradesRef.current.jetpack : (upgradesRef.current.jetpack ? 1 : 0);
-        const drainRate = jetpackLvl === 2 ? 14 : jetpackLvl === 1 ? 20 : 28; // Longer duration with Jetpack upgrade
+        const drainRate = GAME_CONSTANTS.SPRINT.DRAIN_PER_S[jetpackLvl] ?? GAME_CONSTANTS.SPRINT.DRAIN_PER_S[0]; // Longer duration with Jetpack upgrade
         sprintEnergyRef.current = Math.max(0, sprintEnergyRef.current - dt * drainRate);
       } else {
-        sprintEnergyRef.current = Math.min(100, sprintEnergyRef.current + dt * 20);
+        sprintEnergyRef.current = Math.min(GAME_CONSTANTS.SPRINT.MAX, sprintEnergyRef.current + dt * GAME_CONSTANTS.SPRINT.REGEN_PER_S);
       }
       isSprintingRef.current = isSprinting;
       setSprintEnergy(Math.round(sprintEnergyRef.current));
@@ -2067,10 +2171,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
       if (moraleBoostTimerRef.current > 0) {
         moraleBoostTimerRef.current = Math.max(0, moraleBoostTimerRef.current - dt);
       }
-      const moraleMult = moraleBoostTimerRef.current > 0 ? 1.15 : 1.0;
-      const sprintMult = isSprinting ? 1.6 : 1.0;
-      const speedMultiplier = (biomeType === 'desert' ? 0.92 : biomeType === 'snow' ? 0.88 : 1.0) * sprintMult * moraleMult;
-      const baseSpeed = 75 * speedMultiplier;
+      const moraleMult = moraleBoostTimerRef.current > 0 ? GAME_CONSTANTS.PET.SPEED_MULT : 1.0;
+      const sprintMult = isSprinting ? GAME_CONSTANTS.SPRINT_MULT : 1.0;
+      const biomeMult = GAME_CONSTANTS.BIOME_SPEED[biomeType as keyof typeof GAME_CONSTANTS.BIOME_SPEED] ?? 1.0;
+      const speedMultiplier = biomeMult * sprintMult * moraleMult;
+      const baseSpeed = GAME_CONSTANTS.WALK_SPEED * speedMultiplier;
 
       if (isMoving && !isPaused) {
         const length = Math.hypot(inputX, inputY) || 1;
@@ -2453,9 +2558,15 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
             discoveredLandmarksRef.current = nextDiscovered;
             setDiscoveredLandmarkIds(nextDiscovered);
 
-            const nextRP = researchPointsRef.current + 1;
+            const nextRP = researchPointsRef.current + GAME_CONSTANTS.RP.LANDMARK;
             researchPointsRef.current = nextRP;
             setResearchPoints(nextRP);
+
+            pushNovaEvent({
+              atPlaySeconds: playTimeRef.current,
+              type: 'landmark_discovered',
+              detail: `${lm.def.name} (+${GAME_CONSTANTS.RP.LANDMARK} RP)`,
+            });
 
             setLandmarkToast({
               name: lm.def.name,
@@ -2505,6 +2616,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
       }
 
       setNearbyEquipment(nearestActive);
+      nearbyEquipmentRef.current = nearestActive;
 
       // Check proximity to Crashed Spaceship Landmark
       const ship = shipPosRef.current;
@@ -2528,6 +2640,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
         }
       }
       setNearbySample(nearestSample);
+      nearbySampleRef.current = nearestSample;
 
       // Check proximity to Valles Marineris canyon rim for depth sounder probe
       const canyon = landmarksListRef.current.find((lm) => lm.id === 'canyon_rim');
@@ -2581,13 +2694,13 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
       // Update Sol Day/Night progression
       if (!isPaused) {
-        solTimeRef.current = (solTimeRef.current + dt / 180) % 1.0;
+        solTimeRef.current = (solTimeRef.current + dt / GAME_CONSTANTS.SOL.REAL_SECONDS) % 1.0;
         const solHour = solTimeRef.current * 24;
         const hours = Math.floor(solHour);
         const mins = Math.floor((solHour % 1) * 60);
         const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-        const isNight = solTimeRef.current > 0.75 || solTimeRef.current < 0.22;
-        const currentSolNumber = 1 + Math.floor(playTimeRef.current / 180);
+        const isNight = solTimeRef.current > GAME_CONSTANTS.SOL.NIGHT_AFTER || solTimeRef.current < GAME_CONSTANTS.SOL.NIGHT_BEFORE;
+        const currentSolNumber = 1 + Math.floor(playTimeRef.current / GAME_CONSTANTS.SOL.REAL_SECONDS);
         setSolTimeDisplay({ sol: currentSolNumber, timeStr, isNight });
       }
 
@@ -3518,14 +3631,14 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
 
       // Reveal fog of war around player (expanded by Minimap Reveal upgrade if owned)
       const minimapLvl = typeof upgradesRef.current.minimap === 'number' ? upgradesRef.current.minimap : (upgradesRef.current.minimap ? 1 : 0);
-      const currentReveal = minimapLvl === 2 ? 26 : minimapLvl === 1 ? 22 : REVEAL_RADIUS_TILES;
+      const currentReveal = minimapLvl === 0 ? REVEAL_RADIUS_TILES : (GAME_CONSTANTS.SONAR.MINIMAP_REVEAL_TILES[minimapLvl] ?? REVEAL_RADIUS_TILES);
       fogRef.current.revealArea(currentTileX, currentTileY, currentReveal);
 
       // Render Sonar Sample Glints on world canvas during sampleGlintTimer (~6s)
       if (sampleGlintTimerRef.current > 0) {
         const samples = samplesListRef.current;
         const scanLvl = typeof upgradesRef.current.scan === 'number' ? upgradesRef.current.scan : (upgradesRef.current.scan ? 1 : 0);
-        const currentScanRadius = scanLvl === 2 ? 420 : scanLvl === 1 ? 350 : 280;
+        const currentScanRadius = GAME_CONSTANTS.SONAR.RADIUS_PX[scanLvl] ?? GAME_CONSTANTS.SONAR.RADIUS_PX[0];
         for (let i = 0; i < samples.length; i++) {
           const s = samples[i];
           if (collectedSamplesRef.current.includes(s.id)) continue;
@@ -4152,6 +4265,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
           sound.playClick();
           setIsNovaChatOpen(false);
         }}
+        getGameContext={buildMarsContext}
       />
 
       {/* Planetary Exploration Codex Modal */}
@@ -4268,7 +4382,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
                   {(() => {
                     const lvl = typeof upgrades.jetpack === 'number' ? upgrades.jetpack : (upgrades.jetpack ? 1 : 0);
                     const isMax = lvl >= 2;
-                    const cost = isMax ? 0 : [3, 6][lvl];
+                    const cost = isMax ? 0 : GAME_CONSTANTS.UPGRADE_COST.jetpack[lvl];
                     const canAfford = !isMax && researchPoints >= cost;
                     const needed = isMax ? 0 : Math.max(0, cost - researchPoints);
                     const effectText = lvl === 2 ? 'Sprint Drain: -50% (Lv.2 Max)' : lvl === 1 ? 'Sprint Drain: -30% (Lv.1)' : 'Sprint Drain: Standard (100%)';
@@ -4313,7 +4427,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
                   {(() => {
                     const lvl = typeof upgrades.scan === 'number' ? upgrades.scan : (upgrades.scan ? 1 : 0);
                     const isMax = lvl >= 2;
-                    const cost = isMax ? 0 : [4, 8][lvl];
+                    const cost = isMax ? 0 : GAME_CONSTANTS.UPGRADE_COST.scan[lvl];
                     const canAfford = !isMax && researchPoints >= cost;
                     const needed = isMax ? 0 : Math.max(0, cost - researchPoints);
                     const effectText = lvl === 2 ? 'Scan Radius: 420m (+50% Lv.2 Max)' : lvl === 1 ? 'Scan Radius: 350m (+25% Lv.1)' : 'Scan Radius: 280m (Standard)';
@@ -4358,7 +4472,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
                   {(() => {
                     const lvl = typeof upgrades.minimap === 'number' ? upgrades.minimap : (upgrades.minimap ? 1 : 0);
                     const isMax = lvl >= 2;
-                    const cost = isMax ? 0 : [5, 10][lvl];
+                    const cost = isMax ? 0 : GAME_CONSTANTS.UPGRADE_COST.minimap[lvl];
                     const canAfford = !isMax && researchPoints >= cost;
                     const needed = isMax ? 0 : Math.max(0, cost - researchPoints);
                     const effectText = lvl === 2 ? 'Reveal Radius: 26 tiles (+8 Lv.2 Max)' : lvl === 1 ? 'Reveal Radius: 22 tiles (+4 Lv.1)' : 'Reveal Radius: 18 tiles (Standard)';
@@ -4435,6 +4549,11 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
             setIsRepairing(false);
             setIsShipRepaired(true);
             isShipRepairedRef.current = true;
+            pushNovaEvent({
+              atPlaySeconds: playTimeRef.current,
+              type: 'ship_repaired',
+              detail: 'Ascendant-IV calibrated and launch-ready',
+            });
             triggerAutoSave(true);
             sound.playSuccess();
             setIsLaunching(true);
@@ -4463,6 +4582,7 @@ export const WorldScene: React.FC<WorldSceneProps> = ({
           seed={config.seed}
           recoveredLogIds={recoveredLogIds}
           onPlayAgain={(newSeed) => {
+            clearNovaEvents();
             resetProgress();
             if (newSeed) {
               const freshSeed = Math.floor(Math.random() * 900000) + 100000;

@@ -10,6 +10,9 @@
  * - Tab visibility pause / mute
  */
 
+import { BgmEngine, BgmTrack } from './bgm';
+export type { BgmTrack };
+
 export type SurfaceType = 'regolith' | 'sand' | 'snow' | 'grass' | 'metal';
 
 class SoundSystem {
@@ -17,6 +20,10 @@ class SoundSystem {
   private isMuted: boolean = false;
   private musicVolume: number = 0.5;
   private sfxVolume: number = 0.7;
+
+  // Background music sequencer
+  private bgmEngine: BgmEngine | null = null;
+  private desiredBgmTrack: BgmTrack = 'none';
 
   // Drone ambience
   private ambientGain: GainNode | null = null;
@@ -46,6 +53,7 @@ class SoundSystem {
       // Auto-unlock WebAudio on first user interaction
       const unlockAudio = () => {
         this.initCtx();
+        this.syncBgmIfUnlocked();
         window.removeEventListener('pointerdown', unlockAudio);
         window.removeEventListener('keydown', unlockAudio);
         window.removeEventListener('touchstart', unlockAudio);
@@ -98,6 +106,61 @@ class SoundSystem {
     return this.noiseBuffer;
   }
 
+  private getBgmEngine(): BgmEngine {
+    if (!this.bgmEngine) {
+      this.bgmEngine = new BgmEngine(() => this.getNoiseBuffer());
+    }
+    return this.bgmEngine;
+  }
+
+  private syncBgmIfUnlocked() {
+    if (this.isMuted || this.musicVolume <= 0 || this.desiredBgmTrack === 'none') {
+      this.bgmEngine?.stop(this.ctx);
+      return;
+    }
+    if (!this.ctx) return;
+    if (this.ctx.state === 'running') {
+      this.getBgmEngine().sync(this.ctx, this.desiredBgmTrack, this.musicVolume);
+    } else if (this.ctx.state === 'suspended') {
+      const targetTrack = this.desiredBgmTrack;
+      this.ctx
+        .resume()
+        .then(() => {
+          if (
+            !this.isMuted &&
+            this.musicVolume > 0 &&
+            this.ctx?.state === 'running' &&
+            this.desiredBgmTrack === targetTrack
+          ) {
+            this.getBgmEngine().sync(this.ctx, targetTrack, this.musicVolume);
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  public startBgm(track: BgmTrack) {
+    this.desiredBgmTrack = track;
+    if (track === 'none') {
+      this.bgmEngine?.stop(this.ctx);
+      return;
+    }
+    if (this.isMuted || this.musicVolume <= 0) return;
+    // Wait for first user gesture before creating a brand-new AudioContext so browsers don't block it
+    if (this.ctx) {
+      this.syncBgmIfUnlocked();
+    }
+  }
+
+  public stopBgm() {
+    this.desiredBgmTrack = 'none';
+    this.bgmEngine?.stop(this.ctx);
+  }
+
+  public getBgmTrack(): BgmTrack {
+    return this.desiredBgmTrack;
+  }
+
   // Volume & Mute Controls
   public getMuted(): boolean {
     return this.isMuted;
@@ -109,6 +172,10 @@ class SoundSystem {
     if (this.isMuted) {
       this.stopAmbience();
       this.stopBiomeWind();
+      this.bgmEngine?.stop(this.ctx);
+    } else {
+      this.initCtx();
+      this.syncBgmIfUnlocked();
     }
     return this.isMuted;
   }
@@ -119,6 +186,10 @@ class SoundSystem {
     if (this.isMuted) {
       this.stopAmbience();
       this.stopBiomeWind();
+      this.bgmEngine?.stop(this.ctx);
+    } else {
+      this.initCtx();
+      this.syncBgmIfUnlocked();
     }
   }
 
@@ -134,6 +205,16 @@ class SoundSystem {
     }
     if (this.windGain && this.ctx) {
       this.windGain.gain.setValueAtTime(0.06 * this.musicVolume, this.ctx.currentTime);
+    }
+    if (this.musicVolume <= 0) {
+      this.bgmEngine?.stop(this.ctx);
+    } else if (!this.isMuted) {
+      this.initCtx();
+      if (this.bgmEngine?.getActiveTrack() === this.desiredBgmTrack && this.desiredBgmTrack !== 'none') {
+        this.bgmEngine.setVolume(this.ctx, this.musicVolume);
+      } else {
+        this.syncBgmIfUnlocked();
+      }
     }
   }
 

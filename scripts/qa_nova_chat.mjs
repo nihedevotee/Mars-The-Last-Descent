@@ -95,7 +95,11 @@ async function runTest() {
       await page.waitForTimeout(500);
 
       const messagesText = await page.locator('[data-testid="nova-chat-messages"]').innerText();
-      const hasRepairInfo = messagesText.includes('ASCENDANT-IV') && messagesText.includes('8 historical NASA components');
+      const hasRepairInfo =
+        messagesText.includes('Ascendant-IV') && messagesText.includes('8 components');
+      if (!hasRepairInfo) {
+        throw new Error(`Expected repair chip answer to mention Ascendant-IV and 8 components. Got:\n${messagesText}`);
+      }
       console.log(`✅ Quick chip response verified: ${hasRepairInfo}`);
 
       // Test input event isolation
@@ -174,11 +178,69 @@ async function runTest() {
       await page.waitForTimeout(500);
 
       const moonMessages = await page.locator('[data-testid="nova-chat-messages"]').innerText();
-      const hasHopInfo = moonMessages.includes('1/6TH GRAVITY LUNAR HOPPING');
+      const hasHopInfo = moonMessages.includes('1.62 m/s²') && moonMessages.includes('0.8 s');
+      if (!hasHopInfo) {
+        throw new Error(`Expected Moon hop answer to mention 1.62 m/s² and 0.8 s. Got:\n${moonMessages}`);
+      }
       console.log(`✅ Moon Quick chip response verified: ${hasHopInfo}`);
 
       await page.keyboard.press('Escape');
       await page.waitForTimeout(400);
+
+      // ==========================================
+      // TEST LIVE STATE CONTEXT (?debug=1 + __grantAllParts)
+      // ==========================================
+      console.log('Testing live Mars context via ?debug=1 & __grantAllParts...');
+      await page.evaluate(() => {
+        window.onbeforeunload = null;
+      });
+      await page.goto(`http://localhost:${PORT}/?debug=1`);
+      await page.evaluate(() => {
+        const testProgress = {
+          version: 3,
+          currentChapter: 4,
+          unlockedMissions: [],
+          quizzesCompleted: [],
+          solvedMiniGames: [],
+          badges: [],
+          worldSave: {
+            seed: 19970704,
+            playerTileX: 50,
+            playerTileY: 50,
+            playerFacing: 'down',
+            collectedPartIds: [],
+            completedEquipmentIds: [],
+            exploredFog: null,
+            shipRepaired: false,
+            playTimeSeconds: 60,
+            lastSavedAt: Date.now(),
+          },
+        };
+        localStorage.setItem('beyond_depth_save_v3', JSON.stringify(testProgress));
+      });
+      await page.reload();
+      await page.waitForTimeout(2000);
+
+      await page.evaluate(() => {
+        window.__grantAllParts?.();
+      });
+      await page.waitForTimeout(400);
+
+      await page.keyboard.press('KeyN');
+      await page.waitForTimeout(600);
+      await page.waitForSelector('[data-testid="nova-chat-modal"]', { timeout: 5000 });
+
+      const nextStepChip = page.locator('button:has-text("What should I do next?")').first();
+      await nextStepChip.click();
+      await page.waitForTimeout(400);
+
+      const debugMessages = await page.locator('[data-testid="nova-chat-messages"]').innerText();
+      const mentionsShipAndCal =
+        /crashed ship|ship/i.test(debugMessages) && /calibrat/i.test(debugMessages);
+      if (!mentionsShipAndCal) {
+        throw new Error(`Expected next_step after 8 parts to mention crashed ship & calibration. Got:\n${debugMessages}`);
+      }
+      console.log('✅ Live state next_step (8/8 parts -> ship calibration) verified!');
 
       console.log('🎉 ALL MARS & MOON NOVA CHATBOT TESTS PASSED!');
     } catch (err) {

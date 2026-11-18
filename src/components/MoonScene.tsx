@@ -10,6 +10,8 @@ import { ApolloLaserPingGame } from './MiniGames/ApolloLaserPingGame';
 import { LunokhodLostRoverGame } from './MiniGames/LunokhodLostRoverGame';
 import { NovaDialogue } from './NovaDialogue';
 import { NovaChatModal } from './NovaChatModal';
+import { GAME_CONSTANTS } from '../data/gameFacts';
+import { pushNovaEvent, clearNovaEvents, MoonGameContext } from '../data/novaContext';
 import { Volume2, VolumeX, Radio, Sparkles } from 'lucide-react';
 
 interface MoonSceneProps {
@@ -19,11 +21,11 @@ interface MoonSceneProps {
   onToggleSound: () => void;
 }
 
-const TILE_SIZE = 16;
-const WALK_SPEED = 75; // px/sec
-const HOP_SPEED_MULT = 1.4; // 105 px/sec
-const HOP_AIRTIME = 0.8; // 0.7-0.9s
-const HOP_COOLDOWN = 0.4; // 0.4s
+const TILE_SIZE = GAME_CONSTANTS.TILE_PX;
+const WALK_SPEED = GAME_CONSTANTS.WALK_SPEED; // px/sec
+const HOP_SPEED_MULT = GAME_CONSTANTS.MOON.HOP_MULT; // 105 px/sec
+const HOP_AIRTIME = GAME_CONSTANTS.MOON.HOP_AIRTIME_S; // 0.7-0.9s
+const HOP_COOLDOWN = GAME_CONSTANTS.MOON.HOP_COOLDOWN_S; // 0.4s
 const MOON_CAMERA_ZOOM = 2; // Integer zoom: player sprite rendered 56 CSS px tall (>= 32 desktop, >= 28 mobile)
 
 interface Footprint {
@@ -148,6 +150,12 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
   });
   const relicIdsRef = useRef<string[]>(relicIds);
   relicIdsRef.current = relicIds;
+
+  const moonStartMsRef = useRef<number>(Date.now());
+  const moonCompletedRef = useRef<boolean>(Boolean(getSavedProgress().moonChapter?.completed));
+  useEffect(() => {
+    clearNovaEvents();
+  }, []);
 
   // Saved secrets & anomalies
   const [secretIds, setSecretIds] = useState<string[]>(() => {
@@ -611,6 +619,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const nextSecrets = Array.from(new Set([...secretIdsRef.current, secret.id]));
     setSecretIds(nextSecrets);
     secretIdsRef.current = nextSecrets;
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_secret',
+      detail: secret.name,
+    });
 
     // Persist immediately to game progress
     const saved = getSavedProgress();
@@ -694,6 +707,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const nextIce = Array.from(new Set([...iceScannedIdsRef.current, ice.id]));
     setIceScannedIds(nextIce);
     iceScannedIdsRef.current = nextIce;
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_ice',
+      detail: ice.name,
+    });
 
     // Persist immediately to game progress
     const saved = getSavedProgress();
@@ -761,6 +779,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const nextMonuments = Array.from(new Set([...monumentIdsRef.current, monument.id]));
     setMonumentIds(nextMonuments);
     monumentIdsRef.current = nextMonuments;
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_monument',
+      detail: monument.name,
+    });
 
     // Persist immediately to game progress
     const saved = getSavedProgress();
@@ -846,6 +869,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const nextRocks = Array.from(new Set([...lunarRockIdsRef.current, rock.id]));
     setLunarRockIds(nextRocks);
     lunarRockIdsRef.current = nextRocks;
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_rock',
+      detail: rock.name,
+    });
 
     const allThreeCollected = nextRocks.length >= 3;
     const earnedBadges = [rock.badge];
@@ -955,6 +983,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     if (!thumperFiredRef.current) {
       setThumperFired(true);
       thumperFiredRef.current = true;
+      pushNovaEvent({
+        atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+        type: 'moon_thumper',
+        detail: 'ALSEP Active Seismic Thumper',
+      });
 
       const saved = getSavedProgress();
       const currentBadges = saved.badges || [];
@@ -1049,6 +1082,11 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     rover.speed = 0;
     isDrivingRoverRef.current = true;
     setIsDrivingRover(true);
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_lrv',
+      detail: 'Apollo LRV boarded',
+    });
     setNearbyRover(false);
     nearbyRoverRef.current = false;
     sound.playClick();
@@ -1111,6 +1149,12 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     const nextRelics = Array.from(new Set([...relicIdsRef.current, relicId]));
     setRelicIds(nextRelics);
     relicIdsRef.current = nextRelics;
+    const relicName = mapData.relics.find((r) => r.id === relicId)?.name || relicId;
+    pushNovaEvent({
+      atPlaySeconds: (Date.now() - moonStartMsRef.current) / 1000,
+      type: 'moon_relic',
+      detail: `${relicName} (${nextRelics.length}/3)`,
+    });
 
     // Persist immediately to game progress
     const saved = getSavedProgress();
@@ -1133,6 +1177,20 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
     setActiveRelic(null);
     setToast(`RELIC ${nextRelics.length}/3`);
     setTimeout(() => setToast(null), 2500);
+  }, [mapData]);
+
+  const buildMoonContext = useCallback((): MoonGameContext => {
+    return {
+      location: 'moon',
+      relicIds: [...relicIdsRef.current],
+      monumentIds: [...monumentIdsRef.current],
+      lunarRockIds: [...lunarRockIdsRef.current],
+      iceScannedIds: [...iceScannedIdsRef.current],
+      secretIds: [...secretIdsRef.current],
+      thumperFired: thumperFiredRef.current,
+      ridingLrv: isDrivingRoverRef.current,
+      chapterCompleted: moonCompletedRef.current || showEarthriseRef.current,
+    };
   }, []);
 
   // Direct Click/Tap to Pet Nova on Foot
@@ -4021,6 +4079,7 @@ export const MoonScene: React.FC<MoonSceneProps> = ({
           setIsNovaChatOpen(false);
         }}
         location="moon"
+        getGameContext={buildMoonContext}
       />
 
       {/* NOVA AI Companion Quick Trigger (Bottom-Right HUD Prompt) */}
